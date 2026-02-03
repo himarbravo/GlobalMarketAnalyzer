@@ -1,0 +1,263 @@
+2026-02-03 10:50:09,801 - ModelLoader - INFO - Loading model: Qwen/Qwen2.5-0.5B-Instruct on mps
+`torch_dtype` is deprecated! Use `dtype` instead!
+2026-02-03 10:50:15,451 - ModelLoader - INFO - Model loaded successfully.
+2026-02-03 10:50:15,661 - LLMEngine - INFO - Generating for input length: 576
+127.0.0.1 - - [03/Feb/2026 10:50:17] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:18,960 - LLMEngine - INFO - Generating for input length: 588
+127.0.0.1 - - [03/Feb/2026 10:50:19] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:24,787 - LLMEngine - INFO - Generating for input length: 620
+127.0.0.1 - - [03/Feb/2026 10:50:26] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:26,651 - LLMEngine - INFO - Generating for input length: 601
+127.0.0.1 - - [03/Feb/2026 10:50:27] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:28,225 - LLMEngine - INFO - Generating for input length: 555
+127.0.0.1 - - [03/Feb/2026 10:50:29] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:29,981 - LLMEngine - INFO - Generating for input length: 496
+127.0.0.1 - - [03/Feb/2026 10:50:30] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:31,623 - LLMEngine - INFO - Generating for input length: 551
+127.0.0.1 - - [03/Feb/2026 10:50:32] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:33,149 - LLMEngine - INFO - Generating for input length: 556
+127.0.0.1 - - [03/Feb/2026 10:50:33] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:34,539 - LLMEngine - INFO - Generating for input length: 610
+127.0.0.1 - - [03/Feb/2026 10:50:35] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:35,902 - LLMEngine - INFO - Generating for input length: 576
+127.0.0.1 - - [03/Feb/2026 10:50:37] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:50:37,680 - LLMEngine - INFO - Generating for input length: 588
+127.0.0.1 - - [03/Feb/2026 10:50:38] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:09,376 - LLMEngine - INFO - Generating for input length: 620
+127.0.0.1 - - [03/Feb/2026 10:51:11] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:11,728 - LLMEngine - INFO - Generating for input length: 601
+127.0.0.1 - - [03/Feb/2026 10:51:12] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:13,300 - LLMEngine - INFO - Generating for input length: 555
+127.0.0.1 - - [03/Feb/2026 10:51:14] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:14,889 - LLMEngine - INFO - Generating for input length: 496
+127.0.0.1 - - [03/Feb/2026 10:51:15] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:16,708 - LLMEngine - INFO - Generating for input length: 551
+127.0.0.1 - - [03/Feb/2026 10:51:17] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:18,709 - LLMEngine - INFO - Generating for input length: 556
+127.0.0.1 - - [03/Feb/2026 10:51:19] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:20,524 - LLMEngine - INFO - Generating for input length: 610
+127.0.0.1 - - [03/Feb/2026 10:51:21] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:22,518 - LLMEngine - INFO - Generating for input length: 576
+127.0.0.1 - - [03/Feb/2026 10:51:23] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 10:51:24,348 - LLMEngine - INFO - Generating for input length: 588
+127.0.0.1 - - [03/Feb/2026 10:51:25] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:44:47,148 - LLMEngine - INFO - Generating for input length: 836
+127.0.0.1 - - [03/Feb/2026 11:45:01] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:03,033 - LLMEngine - INFO - Generating for input length: 620
+127.0.0.1 - - [03/Feb/2026 11:45:04] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:04,694 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 11:45:06] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:07,107 - LLMEngine - INFO - Generating for input length: 601
+127.0.0.1 - - [03/Feb/2026 11:45:08] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:08,224 - LLMEngine - INFO - Generating for input length: 774
+127.0.0.1 - - [03/Feb/2026 11:45:20] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:21,098 - LLMEngine - INFO - Generating for input length: 541
+127.0.0.1 - - [03/Feb/2026 11:45:21] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:21,949 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 11:45:29] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:30,920 - LLMEngine - INFO - Generating for input length: 467
+127.0.0.1 - - [03/Feb/2026 11:45:32] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:32,153 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 11:45:40] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:41,062 - LLMEngine - INFO - Generating for input length: 551
+127.0.0.1 - - [03/Feb/2026 11:45:42] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:42,185 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 11:45:46] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:47,303 - LLMEngine - INFO - Generating for input length: 556
+127.0.0.1 - - [03/Feb/2026 11:45:48] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:48,337 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 11:45:57] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:57,890 - LLMEngine - INFO - Generating for input length: 596
+127.0.0.1 - - [03/Feb/2026 11:45:58] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:45:58,623 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 11:46:04] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:46:05,324 - LLMEngine - INFO - Generating for input length: 562
+127.0.0.1 - - [03/Feb/2026 11:46:06] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:46:06,306 - LLMEngine - INFO - Generating for input length: 762
+127.0.0.1 - - [03/Feb/2026 11:46:15] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:46:16,144 - LLMEngine - INFO - Generating for input length: 585
+127.0.0.1 - - [03/Feb/2026 11:46:17] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 11:46:17,146 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 11:46:21] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:04:36,789 - LLMEngine - INFO - Generating for input length: 859
+127.0.0.1 - - [03/Feb/2026 12:04:55] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:04:56,435 - LLMEngine - INFO - Generating for input length: 620
+127.0.0.1 - - [03/Feb/2026 12:04:58] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:04:58,537 - LLMEngine - INFO - Generating for input length: 759
+127.0.0.1 - - [03/Feb/2026 12:05:03] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:05:33,921 - LLMEngine - INFO - Generating for input length: 860
+127.0.0.1 - - [03/Feb/2026 12:05:41] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:05:42,418 - LLMEngine - INFO - Generating for input length: 620
+127.0.0.1 - - [03/Feb/2026 12:05:43] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:05:43,859 - LLMEngine - INFO - Generating for input length: 759
+127.0.0.1 - - [03/Feb/2026 12:05:46] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:06:20,608 - LLMEngine - INFO - Generating for input length: 846
+127.0.0.1 - - [03/Feb/2026 12:06:31] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:06:32,448 - LLMEngine - INFO - Generating for input length: 620
+127.0.0.1 - - [03/Feb/2026 12:06:35] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:06:35,067 - LLMEngine - INFO - Generating for input length: 759
+127.0.0.1 - - [03/Feb/2026 12:06:44] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:06:45,329 - LLMEngine - INFO - Generating for input length: 601
+127.0.0.1 - - [03/Feb/2026 12:06:46] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:06:46,347 - LLMEngine - INFO - Generating for input length: 772
+127.0.0.1 - - [03/Feb/2026 12:06:54] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:06:54,943 - LLMEngine - INFO - Generating for input length: 562
+127.0.0.1 - - [03/Feb/2026 12:06:57] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:06:57,216 - LLMEngine - INFO - Generating for input length: 760
+127.0.0.1 - - [03/Feb/2026 12:07:01] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:02,776 - LLMEngine - INFO - Generating for input length: 543
+127.0.0.1 - - [03/Feb/2026 12:07:04] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:04,037 - LLMEngine - INFO - Generating for input length: 759
+127.0.0.1 - - [03/Feb/2026 12:07:08] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:09,073 - LLMEngine - INFO - Generating for input length: 539
+127.0.0.1 - - [03/Feb/2026 12:07:10] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:10,388 - LLMEngine - INFO - Generating for input length: 759
+127.0.0.1 - - [03/Feb/2026 12:07:13] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:14,313 - LLMEngine - INFO - Generating for input length: 564
+127.0.0.1 - - [03/Feb/2026 12:07:15] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:15,576 - LLMEngine - INFO - Generating for input length: 758
+127.0.0.1 - - [03/Feb/2026 12:07:21] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:22,743 - LLMEngine - INFO - Generating for input length: 573
+127.0.0.1 - - [03/Feb/2026 12:07:24] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:24,384 - LLMEngine - INFO - Generating for input length: 758
+127.0.0.1 - - [03/Feb/2026 12:07:34] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:35,451 - LLMEngine - INFO - Generating for input length: 581
+127.0.0.1 - - [03/Feb/2026 12:07:36] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:07:36,498 - LLMEngine - INFO - Generating for input length: 758
+127.0.0.1 - - [03/Feb/2026 12:07:49] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:08:41,456 - LLMEngine - INFO - Generating for input length: 858
+127.0.0.1 - - [03/Feb/2026 12:08:53] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:08:54,937 - LLMEngine - INFO - Generating for input length: 635
+127.0.0.1 - - [03/Feb/2026 12:08:56] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:08:56,494 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 12:09:06] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:07,513 - LLMEngine - INFO - Generating for input length: 551
+127.0.0.1 - - [03/Feb/2026 12:09:08] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:08,737 - LLMEngine - INFO - Generating for input length: 774
+127.0.0.1 - - [03/Feb/2026 12:09:14] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:15,041 - LLMEngine - INFO - Generating for input length: 591
+127.0.0.1 - - [03/Feb/2026 12:09:16] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:16,101 - LLMEngine - INFO - Generating for input length: 762
+127.0.0.1 - - [03/Feb/2026 12:09:25] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:26,908 - LLMEngine - INFO - Generating for input length: 515
+127.0.0.1 - - [03/Feb/2026 12:09:28] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:28,203 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 12:09:30] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:31,656 - LLMEngine - INFO - Generating for input length: 539
+127.0.0.1 - - [03/Feb/2026 12:09:32] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:32,837 - LLMEngine - INFO - Generating for input length: 761
+127.0.0.1 - - [03/Feb/2026 12:09:37] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:38,136 - LLMEngine - INFO - Generating for input length: 564
+127.0.0.1 - - [03/Feb/2026 12:09:39] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:39,168 - LLMEngine - INFO - Generating for input length: 760
+127.0.0.1 - - [03/Feb/2026 12:09:45] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:46,752 - LLMEngine - INFO - Generating for input length: 573
+127.0.0.1 - - [03/Feb/2026 12:09:47] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:47,865 - LLMEngine - INFO - Generating for input length: 760
+127.0.0.1 - - [03/Feb/2026 12:09:55] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:56,287 - LLMEngine - INFO - Generating for input length: 581
+127.0.0.1 - - [03/Feb/2026 12:09:57] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:09:57,222 - LLMEngine - INFO - Generating for input length: 760
+127.0.0.1 - - [03/Feb/2026 12:10:06] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:16:36,918 - LLMEngine - INFO - Generating for input length: 847
+127.0.0.1 - - [03/Feb/2026 12:16:46] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:16:48,049 - LLMEngine - INFO - Generating for input length: 635
+127.0.0.1 - - [03/Feb/2026 12:16:49] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:16:49,500 - LLMEngine - INFO - Generating for input length: 777
+127.0.0.1 - - [03/Feb/2026 12:16:56] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:16:57,679 - LLMEngine - INFO - Generating for input length: 551
+127.0.0.1 - - [03/Feb/2026 12:16:58] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:16:58,601 - LLMEngine - INFO - Generating for input length: 772
+127.0.0.1 - - [03/Feb/2026 12:17:04] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:05,340 - LLMEngine - INFO - Generating for input length: 591
+127.0.0.1 - - [03/Feb/2026 12:17:06] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:06,571 - LLMEngine - INFO - Generating for input length: 777
+127.0.0.1 - - [03/Feb/2026 12:17:13] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:14,279 - LLMEngine - INFO - Generating for input length: 559
+127.0.0.1 - - [03/Feb/2026 12:17:15] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:15,546 - LLMEngine - INFO - Generating for input length: 775
+127.0.0.1 - - [03/Feb/2026 12:17:26] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:26,815 - LLMEngine - INFO - Generating for input length: 539
+127.0.0.1 - - [03/Feb/2026 12:17:28] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:28,543 - LLMEngine - INFO - Generating for input length: 774
+127.0.0.1 - - [03/Feb/2026 12:17:37] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:38,532 - LLMEngine - INFO - Generating for input length: 564
+127.0.0.1 - - [03/Feb/2026 12:17:39] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:39,524 - LLMEngine - INFO - Generating for input length: 774
+127.0.0.1 - - [03/Feb/2026 12:17:44] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:45,036 - LLMEngine - INFO - Generating for input length: 573
+127.0.0.1 - - [03/Feb/2026 12:17:45] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:45,859 - LLMEngine - INFO - Generating for input length: 763
+127.0.0.1 - - [03/Feb/2026 12:17:52] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:53,316 - LLMEngine - INFO - Generating for input length: 581
+127.0.0.1 - - [03/Feb/2026 12:17:54] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:17:54,360 - LLMEngine - INFO - Generating for input length: 776
+127.0.0.1 - - [03/Feb/2026 12:18:01] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:29:54,031 - LLMEngine - INFO - Generating for input length: 741
+127.0.0.1 - - [03/Feb/2026 12:30:04] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:30:05,674 - LLMEngine - INFO - Generating for input length: 559
+127.0.0.1 - - [03/Feb/2026 12:30:06] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:30:07,881 - LLMEngine - INFO - Generating for input length: 475
+127.0.0.1 - - [03/Feb/2026 12:30:08] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:30:09,629 - LLMEngine - INFO - Generating for input length: 515
+127.0.0.1 - - [03/Feb/2026 12:30:10] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:30:11,768 - LLMEngine - INFO - Generating for input length: 483
+127.0.0.1 - - [03/Feb/2026 12:30:12] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:30:13,476 - LLMEngine - INFO - Generating for input length: 500
+127.0.0.1 - - [03/Feb/2026 12:30:14] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:30:15,073 - LLMEngine - INFO - Generating for input length: 503
+127.0.0.1 - - [03/Feb/2026 12:30:15] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:30:16,623 - LLMEngine - INFO - Generating for input length: 497
+127.0.0.1 - - [03/Feb/2026 12:30:17] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:30:18,301 - LLMEngine - INFO - Generating for input length: 523
+127.0.0.1 - - [03/Feb/2026 12:30:19] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:28,969 - LLMEngine - INFO - Generating for input length: 741
+127.0.0.1 - - [03/Feb/2026 12:32:31] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:32,772 - LLMEngine - INFO - Generating for input length: 559
+127.0.0.1 - - [03/Feb/2026 12:32:33] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:34,518 - LLMEngine - INFO - Generating for input length: 475
+127.0.0.1 - - [03/Feb/2026 12:32:35] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:35,915 - LLMEngine - INFO - Generating for input length: 515
+127.0.0.1 - - [03/Feb/2026 12:32:36] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:37,280 - LLMEngine - INFO - Generating for input length: 483
+127.0.0.1 - - [03/Feb/2026 12:32:37] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:38,734 - LLMEngine - INFO - Generating for input length: 495
+127.0.0.1 - - [03/Feb/2026 12:32:39] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:40,267 - LLMEngine - INFO - Generating for input length: 503
+127.0.0.1 - - [03/Feb/2026 12:32:40] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:41,616 - LLMEngine - INFO - Generating for input length: 497
+127.0.0.1 - - [03/Feb/2026 12:32:42] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:32:43,409 - LLMEngine - INFO - Generating for input length: 523
+127.0.0.1 - - [03/Feb/2026 12:32:44] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:33:29,996 - LLMEngine - INFO - Generating for input length: 559
+127.0.0.1 - - [03/Feb/2026 12:33:33] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:33:34,534 - LLMEngine - INFO - Generating for input length: 475
+127.0.0.1 - - [03/Feb/2026 12:33:35] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:33:36,087 - LLMEngine - INFO - Generating for input length: 515
+127.0.0.1 - - [03/Feb/2026 12:33:36] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:33:37,452 - LLMEngine - INFO - Generating for input length: 483
+127.0.0.1 - - [03/Feb/2026 12:33:37] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:33:38,363 - LLMEngine - INFO - Generating for input length: 495
+127.0.0.1 - - [03/Feb/2026 12:33:38] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:33:39,384 - LLMEngine - INFO - Generating for input length: 503
+127.0.0.1 - - [03/Feb/2026 12:33:39] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:33:40,570 - LLMEngine - INFO - Generating for input length: 497
+127.0.0.1 - - [03/Feb/2026 12:33:41] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:33:42,569 - LLMEngine - INFO - Generating for input length: 523
+127.0.0.1 - - [03/Feb/2026 12:33:43] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:37:48,306 - LLMEngine - INFO - Generating for input length: 559
+127.0.0.1 - - [03/Feb/2026 12:37:50] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:37:51,159 - LLMEngine - INFO - Generating for input length: 475
+127.0.0.1 - - [03/Feb/2026 12:37:51] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:37:52,541 - LLMEngine - INFO - Generating for input length: 515
+127.0.0.1 - - [03/Feb/2026 12:37:53] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:37:54,163 - LLMEngine - INFO - Generating for input length: 483
+127.0.0.1 - - [03/Feb/2026 12:37:54] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:37:55,352 - LLMEngine - INFO - Generating for input length: 495
+127.0.0.1 - - [03/Feb/2026 12:37:56] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:37:56,925 - LLMEngine - INFO - Generating for input length: 503
+127.0.0.1 - - [03/Feb/2026 12:37:57] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:37:58,497 - LLMEngine - INFO - Generating for input length: 497
+127.0.0.1 - - [03/Feb/2026 12:37:59] "POST /api/generate HTTP/1.1" 200 -
+2026-02-03 12:38:00,174 - LLMEngine - INFO - Generating for input length: 523
+127.0.0.1 - - [03/Feb/2026 12:38:00] "POST /api/generate HTTP/1.1" 200 -

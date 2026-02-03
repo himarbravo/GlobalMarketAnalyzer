@@ -1,0 +1,11 @@
+(* --- BLOQUE DE EXPORTACIÓN AUTOMÁTICA --- *)
+(* Copia y pega esto al FINAL de tu notebook para que Python pueda leer tus resultados *)
+
+datosExportar = {
+  {"Fecha", "Ticker", "Senal_Math", "Precio_Objetivo", "Estado_Mercado"},
+  {DateString[{"Year", "-", "Month", "-", "Day"}], "NVDA", senal, valMediana, estadoMercado}
+};
+
+Export["predicciones_matematica.csv", datosExportar, "CSV"];
+
+Print["✅ Datos exportados a predicciones_matematica.csv"];

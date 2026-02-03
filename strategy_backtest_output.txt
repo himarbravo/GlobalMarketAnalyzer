@@ -1,0 +1,137 @@
+/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/strategy_backtest_comparator.py:67: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  avg_corr = float(avg_corr_raw.iloc[-1] if hasattr(avg_corr_raw, 'iloc') else avg_corr_raw)
+
+15 Failed downloads:
+['HYG', 'JPM', 'AAPL', 'NVDA', 'QQQ', 'XLP', 'IEF', '^VIX', 'TSLA', 'JNJ', 'TLT', 'BTC-USD', 'SPY', 'MSFT', 'GLD']: ValueError("time data ' 2020-12-31' does not match format '%Y-%m-%d'")
+/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/strategy_backtest_comparator.py:67: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  avg_corr = float(avg_corr_raw.iloc[-1] if hasattr(avg_corr_raw, 'iloc') else avg_corr_raw)
+/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/strategy_backtest_comparator.py:67: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  avg_corr = float(avg_corr_raw.iloc[-1] if hasattr(avg_corr_raw, 'iloc') else avg_corr_raw)
+/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/hmmlearn/hmm.py:352: RuntimeWarning: invalid value encountered in divide
+  self.means_ = ((means_weight * means_prior + stats['obs'])
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+
+======================================================================
+🎯 STRATEGY BACKTESTING COMPARATOR
+======================================================================
+
+Testing 3 strategies across historical periods:
+  1. Value (Buffett) - Buy cheap, hold long
+  2. Growth (ARK) - Innovation, ignore valuation
+  3. Risk-Off (Dalio) - Crisis alpha, safe havens
+
+======================================================================
+
+======================================================================
+📅 COVID Crash
+   Period: 2020-02-01 to 2020-04-30
+======================================================================
+🧠 Entrenando Detector de Régimen (HMM)...
+✅ Modelo guardado en regime_model.pkl
+
+📊 Parámetros de Régimen:
+  BEAR: μ=-382.4% anual, σ=104.7% anual
+  NEUTRAL: μ=-73.1% anual, σ=36.1% anual
+  BULL: μ=205.5% anual, σ=52.8% anual
+✅ Loaded 3 strategies
+
+Macro: Regime=NEUTRAL, VIX=31.2, Corr=0.25
+
+Strategy        Score    Performance     Notes
+----------------------------------------------------------------------
+Value Investing (Buffett) 10.0     +nan%           
+Growth Momentum (ARK) 25.0     +nan%           
+Risk-Off / Crisis Alpha 20.0     +nan%           ✅ Ideal conditions
+
+======================================================================
+📅 COVID Recovery
+   Period: 2020-05-01 to  2020-12-31
+======================================================================
+⚠️ Insufficient data (0 days)
+
+======================================================================
+📅 Tech Selloff 2022
+   Period: 2022-09-01 to 2022-12-31
+======================================================================
+🧠 Entrenando Detector de Régimen (HMM)...
+✅ Modelo guardado en regime_model.pkl
+
+📊 Parámetros de Régimen:
+  BEAR: μ=-15.3% anual, σ=26.3% anual
+  NEUTRAL: μ=8.1% anual, σ=31.8% anual
+  BULL: μ=396.5% anual, σ=28369826162862.0% anual
+✅ Loaded 3 strategies
+
+Macro: Regime=NEUTRAL, VIX=21.7, Corr=0.41
+
+Strategy        Score    Performance     Notes
+----------------------------------------------------------------------
+Value Investing (Buffett) 10.0     +2.0%           
+Growth Momentum (ARK) 25.0     +2.0%           
+Risk-Off / Crisis Alpha 20.0     +2.2%           
+
+======================================================================
+📅 Bull Run 2023
+   Period: 2023-01-01 to 2023-12-31
+======================================================================
+🧠 Entrenando Detector de Régimen (HMM)...
+✅ Modelo guardado en regime_model.pkl
+
+📊 Parámetros de Régimen:
+  BEAR: μ=16.9% anual, σ=15.9% anual
+  NEUTRAL: μ=17.3% anual, σ=16.2% anual
+  BULL: μ=26.3% anual, σ=5636548.7% anual
+✅ Loaded 3 strategies
+
+Macro: Regime=BEAR, VIX=12.4, Corr=0.22
+
+Strategy        Score    Performance     Notes
+----------------------------------------------------------------------
+Value Investing (Buffett) 10.0     +nan%           ✅ Ideal conditions
+Growth Momentum (ARK) 25.0     +nan%           
+Risk-Off / Crisis Alpha 20.0     +nan%           
+
+======================================================================
+📅 2024 Performance
+   Period: 2024-01-01 to 2024-12-31
+======================================================================
+🧠 Entrenando Detector de Régimen (HMM)...
+Traceback (most recent call last):
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/strategy_backtest_comparator.py", line 217, in <module>
+    backtester.run_full_backtest()
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/strategy_backtest_comparator.py", line 157, in run_full_backtest
+    self.backtest_period(start, end, name)
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/strategy_backtest_comparator.py", line 61, in backtest_period
+    regime_detector.train(spy_returns)
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/regime_detector.py", line 40, in train
+    self.model.fit(X)
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/hmmlearn/base.py", line 485, in fit
+    stats, curr_logprob = self._do_estep(X, lengths)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/hmmlearn/base.py", line 764, in _do_estep
+    lattice, logprob, posteriors, fwdlattice, bwdlattice = impl(sub_X)
+                                                           ^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/hmmlearn/base.py", line 883, in _fit_log
+    log_frameprob = self._compute_log_likelihood(X)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/hmmlearn/_emissions.py", line 130, in _compute_log_likelihood
+    return log_multivariate_normal_density(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/hmmlearn/stats.py", line 42, in log_multivariate_normal_density
+    return log_multivariate_normal_density_dict[covariance_type](
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/hmmlearn/stats.py", line 81, in _log_multivariate_normal_density_full
+    cv_chol = linalg.cholesky(cv, lower=True)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/scipy/_lib/_util.py", line 1181, in wrapper
+    return f(*arrays, *other_args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/scipy/linalg/_decomp_cholesky.py", line 106, in cholesky
+    c, lower = _cholesky(a, lower=lower, overwrite_a=overwrite_a, clean=True,
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/scipy/linalg/_decomp_cholesky.py", line 19, in _cholesky
+    a1 = asarray_chkfinite(a) if check_finite else asarray(a)
+         ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/.venv/lib/python3.11/site-packages/numpy/lib/_function_base_impl.py", line 673, in asarray_chkfinite
+    raise ValueError(
+ValueError: array must not contain infs or NaNs
