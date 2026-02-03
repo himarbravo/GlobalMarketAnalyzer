@@ -2620,3 +2620,13 @@ shell-init: error retrieving current directory: getcwd: cannot access parent dir
 /bin/bash: /Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/start_system.sh: Operation not permitted
 shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
 /bin/bash: /Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/start_system.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/start_system.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/start_system.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/start_system.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/start_system.sh: Operation not permitted
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/himarbravoperez/Desktop/Trabajo/Juego/GlobalMarketAnalyzer/start_system.sh: Operation not permitted
