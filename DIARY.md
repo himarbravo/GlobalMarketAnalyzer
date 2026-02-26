@@ -48,3 +48,26 @@
 - Adaptive threshold: CORR_THRESHOLD + 0.05 × max(vol_pair - 0.25, 0) → high-vol needs more corr
 - Result: 2632+ / 682- edges (was 3014+/2137- without vol weighting)
 - Order matters: threshold first, then vol boost (prevents low-vol dampening from killing good corr)
+
+---
+
+### Phase 3: Macro completo + eliminación de hardcoded
+
+**Análisis de debilidades encontradas:**
+1. `s(t)` solo usaba VIX+yield_spread — ignoraba DXY, copper, oil (3 indicadores de stress global)
+2. `credit_spread` siempre vacío — HYG/TLT ratio fallaba silenciosamente
+3. `reverse_engineer.py` tenía ~80 tickers hardcoded en 9 sectores
+4. `FX_COUPLING` dict definido (13 líneas) pero nunca usado
+5. Los sectores de `assets` table no se usaban en ningún módulo
+
+**Fixes implementados:**
+- `_calibrate_s()` ahora usa 6 indicadores: VIX (0.20), DXY (0.15), yield_spread (0.15), credit_spread (0.15), copper (0.10), oil (0.05)
+- Sectores cargados dinámicamente desde `assets` table → `gb.sectors` dict
+- `reverse_engineer.py` usa `SECTOR_GROUPS` mapping: DB names → classification categories
+- Eliminado `FX_COUPLING` (dead code)
+- Cargados DXY (505 pts), copper (505 pts), oil_wti (505 pts) nuevos en `graph_builder`
+
+**Resultados:**
+- s(t) = 0.826 (antes 0.821 — DXY=97.7 por debajo de stress threshold 98, no añade stress)
+- 13 categorías de sector (vs 9 hardcoded): +Intl, +Factors, +Sectors, +Real_Estate
+- Event 2025-04-09: 13 sectores afectados (antes solo 9), incluyendo Real_Estate +5.5% e Intl +7.3%

@@ -27,25 +27,16 @@ W3_WEIGHT       = 0.05   # peso de vecinos de 3er orden
 
 # No-localidad
 S_BASE          = 0.85
-S_VIX_COEF      = 0.25
-S_SPREAD_COEF   = 0.20
-S_CREDIT_COEF   = 0.20
+S_VIX_COEF      = 0.20   # VIX: miedo general
+S_DXY_COEF      = 0.15   # DXY: flight to USD = contagio global
+S_SPREAD_COEF   = 0.15   # Yield curve: inversión = recesión
+S_CREDIT_COEF   = 0.15   # Credit spread: tensión deuda
+S_COPPER_COEF   = 0.10   # Copper: salud industrial (caída = estrés)
+S_OIL_COEF      = 0.05   # Oil: shock energético
 S_MIN           = 0.15
 S_MAX           = 1.00
 
-# Acoplamiento inter-moneda (USD es la base)
-FX_COUPLING = {
-    ("USD", "USD"): 1.0,
-    ("USD", "EUR"): 0.6,  ("EUR", "USD"): 0.6,
-    ("USD", "JPY"): 0.5,  ("JPY", "USD"): 0.5,
-    ("USD", "GBP"): 0.7,  ("GBP", "USD"): 0.7,
-    ("EUR", "EUR"): 1.0,
-    ("EUR", "JPY"): 0.4,  ("JPY", "EUR"): 0.4,
-    ("EUR", "GBP"): 0.8,  ("GBP", "EUR"): 0.8,
-    ("JPY", "JPY"): 1.0,
-    ("GBP", "GBP"): 1.0,
-    ("JPY", "GBP"): 0.4,  ("GBP", "JPY"): 0.4,
-}
+
 
 
 class GraphBuilder:
@@ -76,8 +67,15 @@ class GraphBuilder:
         # Macro
         self.vix: pd.Series = pd.Series(dtype=float)
         self.yield_spread: pd.Series = pd.Series(dtype=float)
-        self.credit_spread: pd.Series = pd.Series(dtype=float)  # HYG vs TLT
+        self.credit_spread: pd.Series = pd.Series(dtype=float)
         self.inflation_daily: pd.Series = pd.Series(dtype=float)
+        self.dxy: pd.Series = pd.Series(dtype=float)              # Dollar index
+        self.copper: pd.Series = pd.Series(dtype=float)            # Industrial health
+        self.oil: pd.Series = pd.Series(dtype=float)               # Energy stress
+
+        # Sectores dinámicos (cargados de assets table)
+        self.sector_map: dict = {}   # ticker → sector
+        self.sectors: dict = {}      # sector → [ticker list]
 
         # Grafo
         self.W: np.ndarray = np.array([])            # Adjacencia efectiva (N, N)
@@ -140,7 +138,7 @@ class GraphBuilder:
 
         # --- Macro ---
         macro_resp = self.db.client.table("macro_indicators").select(
-            "date, vix, yield_10y, yield_2y"
+            "date, vix, yield_10y, yield_2y, dxy, copper, oil_wti"
         ).order("date").execute()
 
         if macro_resp.data:
@@ -153,9 +151,23 @@ class GraphBuilder:
             y2  = macro_df["yield_2y"].dropna()
             self.yield_spread = (y10 - y2).dropna()
 
-            # Inflación diaria esperada (Fisher: breakeven ≈ yield_10y - TIPS)
-            # Proxy: yield_2y / 252 (actualización diaria)
-            self.inflation_daily = y2 / 252 / 100  # de % anual a decimal diario
+            # DXY, copper, oil
+            self.dxy = macro_df["dxy"].dropna() if "dxy" in macro_df.columns else pd.Series(dtype=float)
+            self.copper = macro_df["copper"].dropna() if "copper" in macro_df.columns else pd.Series(dtype=float)
+            self.oil = macro_df["oil_wti"].dropna() if "oil_wti" in macro_df.columns else pd.Series(dtype=float)
+
+            # Inflación diaria esperada (proxy: yield_2y / 252)
+            self.inflation_daily = y2 / 252 / 100
+
+        # --- Sectores dinámicos desde assets table ---
+        sector_resp = self.db.client.table("assets").select(
+            "ticker, sector"
+        ).eq("is_active", True).execute()
+        if sector_resp.data:
+            for row in sector_resp.data:
+                t, s = row["ticker"], row.get("sector", "UNKNOWN")
+                self.sector_map[t] = s
+                self.sectors.setdefault(s, []).append(t)
 
         # Credit spread: proxy de tensión en mercado de deuda
         # Usamos los precios de HYG (high yield) vs TLT (treasuries)
@@ -440,29 +452,75 @@ class GraphBuilder:
 
     def _calibrate_s(self, reference_date: str = None):
         """
-        s(t) = clip(s_base - β₁·VIX_norm - β₂·spread_norm - β₃·credit_norm, s_min, s_max)
+        s(t) = clip(s_base - Σ βᵢ·xᵢ_norm, s_min, s_max)
+
+        6 indicadores de estrés:
+          1. VIX: miedo general (normalizado vs 15-40 rango)
+          2. DXY: flight-to-USD (normalizado vs 95-110 rango, sube=stress)
+          3. Yield spread: inversión = recesión (spread negativo=stress)
+          4. Credit spread: tensión de deuda
+          5. Copper: caída = estrés industrial (normalizado como % cambio 60d)
+          6. Oil: shock energético (volatilidad del oil)
         """
-        if reference_date and len(self.vix) > 0:
-            ref = pd.Timestamp(reference_date)
-            vix_val = self.vix.asof(ref)
-            spread_val = self.yield_spread.asof(ref)
-            credit_val = self.credit_spread.asof(ref) if len(self.credit_spread) > 0 else 0.0
-        elif len(self.vix) > 0:
-            vix_val = self.vix.iloc[-1]
-            spread_val = self.yield_spread.iloc[-1]
-            credit_val = self.credit_spread.iloc[-1] if len(self.credit_spread) > 0 else 0.0
-        else:
+        def _get_val(series, ref=None):
+            """Extrae valor de la serie en ref o último disponible."""
+            if len(series) == 0:
+                return None
+            if ref:
+                v = series.asof(pd.Timestamp(ref))
+            else:
+                v = series.iloc[-1]
+            return v if pd.notna(v) else None
+
+        if len(self.vix) == 0:
             self.s = S_BASE
             return
 
-        # Normalizar
-        vix_norm = max(0.0, (vix_val - 15.0) / 25.0) if pd.notna(vix_val) else 0.0
-        spread_norm = max(0.0, -spread_val) if pd.notna(spread_val) else 0.0
-        credit_norm = max(0.0, credit_val * 10) if pd.notna(credit_val) else 0.0
+        vix_val    = _get_val(self.vix, reference_date)
+        spread_val = _get_val(self.yield_spread, reference_date)
+        credit_val = _get_val(self.credit_spread, reference_date)
+        dxy_val    = _get_val(self.dxy, reference_date)
+        copper_val = _get_val(self.copper, reference_date)
+        oil_val    = _get_val(self.oil, reference_date)
+
+        # Normalizar cada indicador a [0, ~1] donde 0=calma, 1=crisis
+        # 1. VIX: rango normal 12-18, stress 25-40, crisis >40
+        vix_norm = max(0.0, (vix_val - 15.0) / 25.0) if vix_val else 0.0
+
+        # 2. DXY: rango normal 95-100, stress 105+, crisis 110+
+        dxy_norm = max(0.0, (dxy_val - 98.0) / 12.0) if dxy_val else 0.0
+
+        # 3. Yield spread: normal >0.5, stress <0, crisis <-0.5
+        spread_norm = max(0.0, -spread_val) if spread_val is not None else 0.0
+
+        # 4. Credit spread
+        credit_norm = max(0.0, credit_val * 10) if credit_val else 0.0
+
+        # 5. Copper: caída fuerte desde media reciente = estrés
+        if copper_val and len(self.copper) > 60:
+            copper_ma = self.copper.tail(60).mean()
+            copper_drop = max(0.0, (copper_ma - copper_val) / copper_ma)
+            copper_norm = copper_drop * 5  # 20% drop → norm=1.0
+        else:
+            copper_norm = 0.0
+
+        # 6. Oil: volatilidad alta = stress (calculamos std/mean últimos 20d)
+        if oil_val and len(self.oil) > 20:
+            oil_std = self.oil.tail(20).std()
+            oil_mean = self.oil.tail(20).mean()
+            oil_cv = oil_std / max(oil_mean, 1.0)
+            oil_norm = max(0.0, (oil_cv - 0.02) / 0.08)  # CV normal 2%, stress 10%
+        else:
+            oil_norm = 0.0
 
         self.s = np.clip(
-            S_BASE - S_VIX_COEF * vix_norm - S_SPREAD_COEF * spread_norm
-            - S_CREDIT_COEF * credit_norm,
+            S_BASE
+            - S_VIX_COEF    * vix_norm
+            - S_DXY_COEF    * dxy_norm
+            - S_SPREAD_COEF * spread_norm
+            - S_CREDIT_COEF * credit_norm
+            - S_COPPER_COEF * copper_norm
+            - S_OIL_COEF    * oil_norm,
             S_MIN, S_MAX
         )
 

@@ -90,25 +90,57 @@ class MarketEvent:
 class ReverseEngineer:
     """Sismología financiera: triangula el epicentro de perturbaciones."""
 
+    # Mapeo de sectores DB → categorías de clasificación
+    SECTOR_GROUPS = {
+        "Tech":       ["TECH_MEGA", "TECH_SEMIS", "TECH_SOFTWARE"],
+        "Finanzas":   ["BANKS", "FINTECH"],
+        "Salud":      ["HEALTHCARE", "BIOTECH"],
+        "Energía":    ["ENERGY", "RENEWABLE"],
+        "Industrial": ["INDUSTRIALS", "MATERIALS"],
+        "Consumo":    ["CONSUMER_DISC", "CONSUMER_STA"],
+        "Bonds":      ["BONDS_GOVT", "BONDS_CORP"],
+        "Commodities":["COMMODITIES"],
+        "Crypto":     ["CRYPTO"],
+        "Intl":       ["INTL_DEV", "INTL_EM", "INTL_STOCKS"],
+        "Factors":    ["FACTORS"],
+        "Sectors":    ["SECTORS"],
+        "Real_Estate":["REAL_ESTATE"],
+    }
+
     def __init__(self, graph_builder, heat_engine):
         self.gb = graph_builder
         self.engine = heat_engine
         self.N = graph_builder.N
         self.tickers = graph_builder.tickers
 
-        # Sectores para clasificación
-        self.SECTORS = {
-            "Tech":       ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "ADBE",
-                          "CRM", "AMD", "AVGO", "ASML", "QCOM", "INTC"],
-            "Finanzas":   ["JPM", "BAC", "GS", "MS", "WFC", "V", "MA"],
-            "Salud":      ["JNJ", "UNH", "PFE", "ABBV", "AMGN", "VRTX", "NVO", "LLY"],
-            "Energía":    ["XOM", "CVX", "COP", "ENPH"],
-            "Industrial": ["CAT", "DE", "BA", "HON", "RTX", "GE", "LMT"],
-            "Consumo":    ["WMT", "COST", "PG", "KO", "PEP", "MCD", "SBUX", "NKE"],
-            "Bonds":      ["TLT", "IEF", "SHY", "LQD", "HYG"],
-            "Commodities":["GLD", "SLV", "USO", "DBA"],
-            "Crypto":     ["BTC-USD", "ETH-USD"],
-        }
+        # Construir sectores dinámicamente desde graph_builder.sectors
+        self.SECTORS = self._build_sectors()
+
+    def _build_sectors(self) -> dict:
+        """Construye dict {categoría: [tickers]} desde graph_builder.sectors."""
+        sectors = {}
+        gb_sectors = getattr(self.gb, 'sectors', {})
+
+        if gb_sectors:
+            # Usar sectores reales de la DB
+            for category, db_names in self.SECTOR_GROUPS.items():
+                tickers = []
+                for db_name in db_names:
+                    tickers.extend(gb_sectors.get(db_name, []))
+                # Solo incluir tickers que estén en el universo actual
+                tickers = [t for t in tickers if t in self.tickers]
+                if tickers:
+                    sectors[category] = tickers
+        else:
+            # Fallback: hardcoded mínimo para funcionar sin DB
+            sectors = {
+                "Tech":       [t for t in ["AAPL","MSFT","GOOGL","NVDA","META","AMD"] if t in self.tickers],
+                "Finanzas":   [t for t in ["JPM","BAC","GS","V"] if t in self.tickers],
+                "Bonds":      [t for t in ["TLT","IEF","SHY","HYG"] if t in self.tickers],
+                "Commodities":[t for t in ["GLD","SLV","USO","DBA"] if t in self.tickers],
+            }
+
+        return sectors
 
     def analyze_date(self, date_str: str) -> MarketEvent:
         """
