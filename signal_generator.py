@@ -165,6 +165,10 @@ class SignalGenerator:
             if ts_std > 1e-8:
                 trend_scores = trend_scores / ts_std
 
+        # Mispricing δ(t) = u(t) - c(t) — capital field
+        mispricing = getattr(self.engine, 'mispricing', np.zeros((1, self.gb.N)))
+        capital_field = getattr(self.engine, 'capital_field', None)
+
         for i, ticker in enumerate(self.gb.tickers):
             score = asset_scores.get(ticker, 0.0)
             z = float(z_real[-1, i]) if len(z_real) > 0 else 0.0
@@ -185,13 +189,21 @@ class SignalGenerator:
             revert_score = score        # z-score + inertia (mean-reversion)
             trend_score = trend_scores[i]  # momentum de modos lentos
 
-            # Combined score: ponderado por tipo de régimen
-            # En calm (s alto): más peso a reversion
-            # En stress (s bajo): más peso a trend (no luchar contra tendencia)
+            # Mispricing score: δ < 0 → infravalorado → señal de compra
+            delta_i = float(mispricing[-1, i]) if len(mispricing) > 0 else 0.0
+            cap_quality = capital_field.quality_flag.get(ticker, "neutral") if capital_field else "neutral"
+
+            # Combined score: 4 componentes
+            # revert (z-score) + trend (momentum) + mispricing (δ) + fundamental (F)
             s = self.gb.s
-            w_revert = 0.4 + 0.3 * s     # calm: 0.7, stress: 0.55
-            w_trend  = 1.0 - w_revert     # calm: 0.3, stress: 0.45
-            composite = w_revert * revert_score + w_trend * trend_score
+            w_revert = 0.30 + 0.15 * s     # calm: 0.45, stress: 0.35
+            w_trend  = 0.20 + 0.10 * (1-s)  # calm: 0.20, stress: 0.30
+            w_delta  = 0.25 if cap_quality == "real" else 0.10  # peso alto solo si datos fiables
+            w_fund   = 1.0 - w_revert - w_trend - w_delta
+            composite = (w_revert * revert_score +
+                         w_trend * trend_score -
+                         w_delta * delta_i +     # δ negativo = infravalorado = comprar
+                         w_fund * F * 5)          # F escalado
 
             # Dirección del trend
             trend_up = trend_score > 0.5
@@ -244,6 +256,8 @@ class SignalGenerator:
                 "macro_score":        round(float(s * 100), 1),
                 "trend_score":        round(float(trend_score), 3),
                 "revert_score":       round(float(revert_score), 3),
+                "mispricing_score":   round(float(delta_i), 3),
+                "capital_quality":    cap_quality,
                 "p_reversion":        p_rev,
                 "expected_return_5d": exp_ret,
                 "half_life_days":     half_life,

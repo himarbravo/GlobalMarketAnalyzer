@@ -66,6 +66,10 @@ class HeatEngine:
         self.capital_flow: np.ndarray = np.array([])     # (T,) net capital in system
         self.refuge_signal: float = 0.0                  # [-1, +1] cuándo ir a refugio
 
+        # Campo dual: mispricing δ(t) = u(t) - c(t)
+        self.mispricing: np.ndarray = np.array([])       # (T, N) δ weighted by confidence
+        self.capital_field = None                         # CapitalField instance
+
         # Inicializar alpha_per_mode con defaults
         self.alpha_per_mode = np.full(self.N, ALPHA_DEFAULT)
 
@@ -236,6 +240,9 @@ class HeatEngine:
         # Refuge signal
         self._compute_refuge_signal()
 
+        # Campo dual: c(t) y mispricing δ(t) = u(t) - c(t)
+        self._compute_mispricing()
+
     def _compute_macro_velocity(self, T_len: int):
         """
         v(t) = β · ΔM(t) + injection(t)
@@ -362,6 +369,25 @@ class HeatEngine:
 
         # Modular por stress: si s bajo (crisis), signal es más creíble
         self.refuge_signal *= (1 + (1 - gb.s))
+
+    def _compute_mispricing(self):
+        """
+        Construye c(t) y calcula δ(t) = u(t) - c(t).
+
+        δ > 0 → precio por encima del capital real → sobrevalorado
+        δ < 0 → precio por debajo del capital real → infravalorado
+        """
+        try:
+            from capital_field import CapitalField
+            cf = CapitalField(self.ff.db)
+            dates = self.gb.returns.index
+            cf.build(self.tickers, dates)
+            self.capital_field = cf
+            self.mispricing = cf.compute_mispricing(self.u_real, self.tickers)
+        except Exception as e:
+            # Si falla, mispricing = 0 (no contribuye a señales)
+            self.mispricing = np.zeros_like(self.u_real)
+            print(f"    ⚠ Mispricing c(t) no disponible: {e}")
 
     def _compute_z_scores(self):
         """z[i,t] = ε[i,t] / σ_ε[i, rolling]"""
