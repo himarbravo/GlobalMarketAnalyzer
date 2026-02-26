@@ -1,0 +1,32 @@
+# Credenciales — NUNCA a git
+.env
+*.env.*
+
+# Base de datos local (si se crea alguna vez)
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Modelos entrenados
+*.pkl
+*.joblib
+*.h5
+
+# Datos descargados (no queremos datos en el repo)
+data/
+*.csv
+*.parquet
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
