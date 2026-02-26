@@ -18,9 +18,13 @@ import pandas as pd
 
 # ── Parámetros del solver ──
 ALPHA_DEFAULT   = 0.05    # coeficiente de difusión base
-ALPHA_RANGE     = (0.01, 0.20)
+ALPHA_RANGE     = (0.005, 0.50)  # rango ampliado (antes 0.01-0.20)
 SIGMA_WINDOW    = 20      # ventana para normalizar residuos
 RETURN_HORIZON  = 5       # días para probabilidad de reversión
+LAMBDA_TREND_TH = 0.10    # modos con λ < esto son TENDENCIA
+TRAIN_FRAC      = 0.70    # fracción para calibración (rest = test)
+ALPHA_REG       = 0.10    # regularización: penalizar α bajos
+MOMENTUM_WIN    = 20      # ventana para estimar momentum de modos lentos
 
 
 class HeatEngine:
@@ -57,15 +61,16 @@ class HeatEngine:
 
     def calibrate_alpha(self):
         """
-        Calibra α por modo espectral usando minimize_scalar.
-        α_k = argmin_α  Σ_t |ε_k(t+1)|²
+        Calibra α con train/test split + regularización.
+        α_k = argmin_α  [err_test(α) + λ_reg · (α_min/α)²]
         """
         from scipy.optimize import minimize_scalar
 
         u = self.gb.u.astype(np.float64)
         u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
+        T_len = len(u)
 
-        if len(u) < 30:
+        if T_len < 60:
             self.alpha = ALPHA_DEFAULT
             self.alpha_per_mode = np.full(self.N, ALPHA_DEFAULT)
             return
@@ -77,43 +82,60 @@ class HeatEngine:
         f_k = Phi.T @ f_vec
         u_k = u @ Phi  # (T, N)
 
-        self.alpha_per_mode = np.full(self.N, ALPHA_DEFAULT)
+        # Train/test split temporal
+        t_split = int(T_len * TRAIN_FRAC)
 
-        # Calibrar α global
-        def global_error(alpha):
+        self.alpha_per_mode = np.full(self.N, ALPHA_DEFAULT)
+        self.mode_type = np.array(['revert'] * self.N, dtype=object)  # 'trend' o 'revert'
+
+        # Clasificar modos: trend vs revert
+        for k in range(self.N):
+            if lam_s[k] < LAMBDA_TREND_TH:
+                self.mode_type[k] = 'trend'
+
+        # Calibrar α global con OUT-OF-SAMPLE + regularización
+        def global_error_oos(alpha):
             mu = alpha * lam_s
             decay = np.where(mu > 1e-10, np.exp(-mu), 1.0)
             eq_term = np.where(mu > 1e-10, f_k / np.maximum(mu, 1e-10) * (1.0 - decay), f_k)
-            u_pred_k = u_k[:-1] * decay[np.newaxis, :] + eq_term[np.newaxis, :]
-            return float(np.sum((u_k[1:] - u_pred_k) ** 2))
+            # Predecir solo en TEST set (t >= t_split)
+            # Usando datos de train como base
+            u_pred_k = u_k[t_split:-1] * decay[np.newaxis, :] + eq_term[np.newaxis, :]
+            err = float(np.sum((u_k[t_split+1:] - u_pred_k) ** 2))
+            # Regularización: penalizar α muy bajo (overfitting)
+            reg = ALPHA_REG * (ALPHA_RANGE[0] / max(alpha, 1e-6)) ** 2
+            return err + reg * err  # relative regularization
 
-        result = minimize_scalar(global_error, bounds=ALPHA_RANGE, method='bounded')
+        result = minimize_scalar(global_error_oos, bounds=ALPHA_RANGE, method='bounded')
         self.alpha = float(result.x)
 
-        # Calibrar α por modo (primeros 20 modos informativos)
-        for k in range(min(self.N, 20)):
-            if lam_s[k] < 1e-10:
-                self.alpha_per_mode[k] = ALPHA_DEFAULT
+        # Calibrar α por modo (solo modos revert, primeros 30)
+        for k in range(min(self.N, 30)):
+            if self.mode_type[k] == 'trend' or lam_s[k] < 1e-10:
+                self.alpha_per_mode[k] = self.alpha
                 continue
 
-            def mode_error(a, _k=k):
+            def mode_error_oos(a, _k=k):
                 mk = a * lam_s[_k]
                 dk = np.exp(-mk) if mk > 1e-10 else 1.0
                 eqk = (f_k[_k] / mk * (1 - dk)) if mk > 1e-10 else f_k[_k]
-                pred = u_k[:-1, _k] * dk + eqk
-                return float(np.sum((u_k[1:, _k] - pred) ** 2))
+                pred = u_k[t_split:-1, _k] * dk + eqk
+                err = float(np.sum((u_k[t_split+1:, _k] - pred) ** 2))
+                reg = ALPHA_REG * (ALPHA_RANGE[0] / max(a, 1e-6)) ** 2
+                return err + reg * err
 
-            res = minimize_scalar(mode_error, bounds=ALPHA_RANGE, method='bounded')
+            res = minimize_scalar(mode_error_oos, bounds=ALPHA_RANGE, method='bounded')
             self.alpha_per_mode[k] = float(res.x)
 
     def solve(self, calibrate: bool = True):
         """
-        Resuelve O-U y calcula residuos.
+        Resuelve O-U híbrido: TREND + REVERT por modo espectral.
 
-        Para cada modo k, la solución analítica es:
-          u_k(t+1) = u_k(t) · e^{-μ_k·dt} + f_k/μ_k · (1 - e^{-μ_k·dt})
+        Modos TREND (λ < threshold):
+          u_k(t+1) = u_k(t) + β_k · Δu_k(t)  (momentum extrapolation)
 
-        donde μ_k = α · λ_k^s
+        Modos REVERT (λ >= threshold):
+          u_k(t+1) = u_k(t) · e^{-μ_k} + f_k/μ_k · (1 - e^{-μ_k})
         """
         u = self.gb.u.astype(np.float64)  # (T, N)
         u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
@@ -133,23 +155,44 @@ class HeatEngine:
         # Proyectar temperaturas reales al espacio espectral
         u_k_real = u @ Phi  # (T, N)
 
-        # Propagar one-step-ahead por modo (usando α por modo)
+        # Propagar one-step-ahead por modo
         u_k_pred = np.zeros_like(u_k_real)
         u_k_pred[0] = u_k_real[0]  # condición inicial
 
-        # Usar α_k calibrado por modo para los primeros 20,
-        # α global para el resto
+        # --- Modos REVERT: O-U clásico ---
         alpha_vec = np.full(self.N, self.alpha)
-        alpha_vec[:min(self.N, 20)] = self.alpha_per_mode[:min(self.N, 20)]
-        mu = alpha_vec * lam_s  # (N,) μ_k = α_k · λ_k^s
+        alpha_vec[:min(self.N, 30)] = self.alpha_per_mode[:min(self.N, 30)]
+        mu = alpha_vec * lam_s  # (N,)
         decay = np.where(mu > 1e-10, np.exp(-mu), 1.0)
         eq_term = np.where(mu > 1e-10, f_k / np.maximum(mu, 1e-10) * (1 - decay), f_k)
 
+        # --- Modos TREND: momentum ---
+        # β_k = autocorrelación exponencial suavizada del cambio de modo
+        is_trend = np.array([mt == 'trend' for mt in self.mode_type])
+        n_trend = int(np.sum(is_trend))
+
         for t in range(T_len - 1):
+            # Revert modes: O-U
             u_k_pred[t + 1] = u_k_real[t] * decay + eq_term
 
+            # Trend modes: momentum extrapolation
+            if n_trend > 0 and t >= MOMENTUM_WIN:
+                for k in range(self.N):
+                    if not is_trend[k]:
+                        continue
+                    # Momentum = media de Δu_k en ventana reciente
+                    deltas = np.diff(u_k_real[max(0, t-MOMENTUM_WIN):t+1, k])
+                    if len(deltas) > 0:
+                        beta_k = np.mean(deltas)  # drift medio
+                        u_k_pred[t + 1, k] = u_k_real[t, k] + beta_k
+
         # Residuos espectrales
-        self.spectral_res = u_k_real - u_k_pred  # (T, N) en base espectral
+        self.spectral_res = u_k_real - u_k_pred  # (T, N)
+
+        # Guardar info para señales
+        self.is_trend_mode = is_trend
+        self.n_trend_modes = n_trend
+        self.n_revert_modes = self.N - n_trend
 
         # Reconstruir en espacio real
         self.u_real = u

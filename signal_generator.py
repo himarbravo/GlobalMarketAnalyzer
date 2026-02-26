@@ -129,12 +129,41 @@ class SignalGenerator:
 
     def _generate_signals(self, ref_date: str) -> list[dict]:
         """
-        Combina scores + probabilidades O-U → señales.
-        Usa probabilidades analíticas, no heurísticas.
+        Combina scores + probabilidades O-U + trend/revert modes → señales.
+
+        Señal compuesta:
+          - revert_signal: z-score de modos rápidos (mean-reversion)
+          - trend_signal:  dirección de modos lentos (momentum)
+          - Cuando coinciden → señal fuerte
+          - Cuando conflictan → WATCH o HOLD
         """
         signals = []
         asset_scores = self.detector.asset_scores
         z_real = self.engine.z_scores
+
+        # Calcular trend signal por activo (proyección en modos trend)
+        Phi = self.gb.eigenvectors
+        is_trend = getattr(self.engine, 'is_trend_mode', np.zeros(self.gb.N, dtype=bool))
+        is_revert = ~is_trend
+
+        # Trend signal: cambio reciente de modos lentos → dirección del mercado para este activo
+        u_k_real = np.nan_to_num(self.gb.u.astype(np.float64)) @ Phi
+        T_len = len(u_k_real)
+        trend_window = 20
+
+        # Trend score por activo: Σ_k(trend) φ_k(i) · Δu_k(últimos 20d)
+        trend_scores = np.zeros(self.gb.N)
+        if T_len > trend_window + 1 and np.any(is_trend):
+            for k in range(self.gb.N):
+                if not is_trend[k]:
+                    continue
+                delta_k = u_k_real[-1, k] - u_k_real[-trend_window, k]
+                trend_scores += Phi[:, k] * delta_k
+
+            # Normalizar a z-score
+            ts_std = np.std(trend_scores)
+            if ts_std > 1e-8:
+                trend_scores = trend_scores / ts_std
 
         for i, ticker in enumerate(self.gb.tickers):
             score = asset_scores.get(ticker, 0.0)
@@ -152,17 +181,45 @@ class SignalGenerator:
             exp_ret = prob["expected_return"]
             half_life = prob["half_life_days"]
 
-            # Score compuesto: z-score + inercia + fundamental
-            composite = score  # ya incluye spectral + inertia + z
+            # Señales separadas
+            revert_score = score        # z-score + inertia (mean-reversion)
+            trend_score = trend_scores[i]  # momentum de modos lentos
 
-            # Determinar señal usando probabilidad + score
-            # F constraint relajado: permite señales en growth stocks
+            # Combined score: ponderado por tipo de régimen
+            # En calm (s alto): más peso a reversion
+            # En stress (s bajo): más peso a trend (no luchar contra tendencia)
+            s = self.gb.s
+            w_revert = 0.4 + 0.3 * s     # calm: 0.7, stress: 0.55
+            w_trend  = 1.0 - w_revert     # calm: 0.3, stress: 0.45
+            composite = w_revert * revert_score + w_trend * trend_score
+
+            # Dirección del trend
+            trend_up = trend_score > 0.5
+            trend_down = trend_score < -0.5
+            asset_cold = z < -1.0
+            asset_hot = z > 1.0
+
+            # Determinar señal: trend+revert alignment
             if composite < BUY_THRESHOLD and p_rev > PROB_MIN and F >= -0.05:
-                signal = "BUY"
-                confidence = round(p_rev * 100, 1)
+                if asset_cold and trend_up:
+                    signal = "BUY"  # Cold + uptrend = strong buy
+                    confidence = round(p_rev * 120, 1)  # boost
+                elif asset_cold and not trend_down:
+                    signal = "BUY"  # Cold + neutral trend = buy
+                    confidence = round(p_rev * 100, 1)
+                else:
+                    signal = "WATCH"  # Cold but downtrend = don't fight
+                    confidence = round(p_rev * 70, 1)
             elif composite > SELL_THRESHOLD and p_rev > PROB_MIN and F <= 0.05:
-                signal = "SELL"
-                confidence = round(p_rev * 100, 1)
+                if asset_hot and trend_down:
+                    signal = "SELL"  # Hot + downtrend = strong sell
+                    confidence = round(p_rev * 120, 1)
+                elif asset_hot and not trend_up:
+                    signal = "SELL"  # Hot + neutral trend = sell
+                    confidence = round(p_rev * 100, 1)
+                else:
+                    signal = "WATCH"  # Hot but uptrend = don't fight
+                    confidence = round(p_rev * 70, 1)
             elif abs(composite) > WATCH_THRESHOLD:
                 signal = "WATCH"
                 confidence = round(p_rev * 100, 1)
@@ -170,9 +227,9 @@ class SignalGenerator:
                 signal = "HOLD"
                 confidence = round((1 - p_rev) * 100, 1)
 
-            # En crisis (s bajo), reducir confianza de señales individuales
+            # En crisis (s bajo), reducir confianza
             if signal != "HOLD":
-                confidence = round(confidence * self.gb.s, 1)
+                confidence = round(confidence * s, 1)
 
             signals.append({
                 "ticker":             ticker,
@@ -180,11 +237,13 @@ class SignalGenerator:
                 "signal":             signal,
                 "confidence":         confidence,
                 "price":              price,
-                "strategy":           "OU_fractional_graph",
+                "strategy":           "OU_hybrid_trend_revert",
                 "regime":             self._classify_regime(),
                 "technical_score":    round(float(composite), 3),
                 "fundamental_score":  round(float(F * 100), 3),
-                "macro_score":        round(float(self.gb.s * 100), 1),
+                "macro_score":        round(float(s * 100), 1),
+                "trend_score":        round(float(trend_score), 3),
+                "revert_score":       round(float(revert_score), 3),
                 "p_reversion":        p_rev,
                 "expected_return_5d": exp_ret,
                 "half_life_days":     half_life,

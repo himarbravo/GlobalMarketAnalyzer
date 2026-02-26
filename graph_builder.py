@@ -483,33 +483,34 @@ class GraphBuilder:
         copper_val = _get_val(self.copper, reference_date)
         oil_val    = _get_val(self.oil, reference_date)
 
-        # Normalizar cada indicador a [0, ~1] donde 0=calma, 1=crisis
-        # 1. VIX: rango normal 12-18, stress 25-40, crisis >40
-        vix_norm = max(0.0, (vix_val - 15.0) / 25.0) if vix_val else 0.0
+        # Z-normalizar cada indicador por SU PROPIA historia
+        # stress = max(0, z-score) → solo contribuye si está por encima de su media
+        def _z_stress(val, series, invert=False):
+            """Z-score normalizado a [0, ~2]. invert=True para indicadores donde baja=stress."""
+            if val is None or len(series) < 30:
+                return 0.0
+            mu = series.mean()
+            sigma = series.std()
+            if sigma < 1e-10:
+                return 0.0
+            z = (val - mu) / sigma
+            if invert:
+                z = -z  # invertir: caída = stress positivo
+            return max(0.0, z)  # Solo stress positivo
 
-        # 2. DXY: rango normal 95-100, stress 105+, crisis 110+
-        dxy_norm = max(0.0, (dxy_val - 98.0) / 12.0) if dxy_val else 0.0
+        # VIX sube = stress, DXY sube = stress (flight to USD)
+        # spread baja = stress (inversión), copper baja = stress, oil volatilidad
+        vix_norm    = _z_stress(vix_val, self.vix)
+        dxy_norm    = _z_stress(dxy_val, self.dxy)
+        spread_norm = _z_stress(spread_val, self.yield_spread, invert=True)
+        credit_norm = _z_stress(credit_val, self.credit_spread) if len(self.credit_spread) > 0 else 0.0
+        copper_norm = _z_stress(copper_val, self.copper, invert=True)
 
-        # 3. Yield spread: normal >0.5, stress <0, crisis <-0.5
-        spread_norm = max(0.0, -spread_val) if spread_val is not None else 0.0
-
-        # 4. Credit spread
-        credit_norm = max(0.0, credit_val * 10) if credit_val else 0.0
-
-        # 5. Copper: caída fuerte desde media reciente = estrés
-        if copper_val and len(self.copper) > 60:
-            copper_ma = self.copper.tail(60).mean()
-            copper_drop = max(0.0, (copper_ma - copper_val) / copper_ma)
-            copper_norm = copper_drop * 5  # 20% drop → norm=1.0
-        else:
-            copper_norm = 0.0
-
-        # 6. Oil: volatilidad alta = stress (calculamos std/mean últimos 20d)
-        if oil_val and len(self.oil) > 20:
-            oil_std = self.oil.tail(20).std()
-            oil_mean = self.oil.tail(20).mean()
-            oil_cv = oil_std / max(oil_mean, 1.0)
-            oil_norm = max(0.0, (oil_cv - 0.02) / 0.08)  # CV normal 2%, stress 10%
+        # Oil: usar volatilidad reciente como stress
+        if len(self.oil) > 20:
+            oil_vol = self.oil.tail(20).pct_change().std()
+            oil_vol_hist = self.oil.pct_change().std()
+            oil_norm = max(0.0, (oil_vol - oil_vol_hist) / max(oil_vol_hist, 1e-6))
         else:
             oil_norm = 0.0
 
