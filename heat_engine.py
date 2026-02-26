@@ -1,15 +1,20 @@
 """
 HEAT ENGINE — GlobalMarketAnalyzer
 ====================================
-Resuelve la ecuación Ornstein-Uhlenbeck en el grafo:
+Resuelve advección-difusión fraccional en el grafo:
 
-  du = -α · L^s · (u - μ) · dt  +  f · dt  +  Σ · dW
+  du/dt = -α · L^s · (u - μ(t)) + v(t) + f(t)
+
+  difusión:  -α·L^s·u        → equilibrar (calor fluye de caliente a frío)
+  advección:  v(t)            → expectativa (dónde se MOVERÁ el dinero)
+  fuente:     f(t)            → fundamentales (quién genera/destruye valor)
 
 Calcula:
   - u_pred(t): predicción del modelo
   - ε(t) = u_real - u_pred: residuos
   - z(t) = ε / σ_ε: residuos normalizados
-  - ε_k(t): residuos en espacio espectral
+  - v(t): velocidad macro (dónde fluye el capital)
+  - refuge_signal: cuándo ir a refugio y cuándo salir
 """
 
 import numpy as np
@@ -55,6 +60,11 @@ class HeatEngine:
         self.spectral_res: np.ndarray = np.array([]) # (T, N) ε_k
         self.alpha_per_mode: np.ndarray = np.array([])  # (N,) α_k
         self.sigma_residual: np.ndarray = np.array([])  # (N,) σ por activo
+
+        # Advección: velocidad macro y flujos de capital
+        self.macro_velocity: np.ndarray = np.array([])  # (T, N) v(t)
+        self.capital_flow: np.ndarray = np.array([])     # (T,) net capital in system
+        self.refuge_signal: float = 0.0                  # [-1, +1] cuándo ir a refugio
 
         # Inicializar alpha_per_mode con defaults
         self.alpha_per_mode = np.full(self.N, ALPHA_DEFAULT)
@@ -129,13 +139,17 @@ class HeatEngine:
 
     def solve(self, calibrate: bool = True):
         """
-        Resuelve O-U híbrido: TREND + REVERT por modo espectral.
+        Resuelve advección-difusión híbrida:
+
+        du/dt = -α·L^s·u + v(t) + f(t)
 
         Modos TREND (λ < threshold):
-          u_k(t+1) = u_k(t) + β_k · Δu_k(t)  (momentum extrapolation)
+          u_k(t+1) = u_k(t) + β_k · Δu_k(t)  (momentum)
 
         Modos REVERT (λ >= threshold):
           u_k(t+1) = u_k(t) · e^{-μ_k} + f_k/μ_k · (1 - e^{-μ_k})
+
+        + Advección: v(t) empuja u según flujos macro de capital
         """
         u = self.gb.u.astype(np.float64)  # (T, N)
         u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
@@ -152,6 +166,9 @@ class HeatEngine:
         f_vec = np.nan_to_num(self.ff.get_source_vector(self.tickers))
         f_k = Phi.T @ f_vec
 
+        # Calcular velocidad macro v(t) — ANTES de resolver
+        self._compute_macro_velocity(T_len)
+
         # Proyectar temperaturas reales al espacio espectral
         u_k_real = u @ Phi  # (T, N)
 
@@ -167,24 +184,35 @@ class HeatEngine:
         eq_term = np.where(mu > 1e-10, f_k / np.maximum(mu, 1e-10) * (1 - decay), f_k)
 
         # --- Modos TREND: momentum ---
-        # β_k = autocorrelación exponencial suavizada del cambio de modo
         is_trend = np.array([mt == 'trend' for mt in self.mode_type])
         n_trend = int(np.sum(is_trend))
 
+        # Proyectar v(t) al espacio espectral para sumar al solver
+        v_spectral = self.macro_velocity @ Phi if len(self.macro_velocity) > 0 else np.zeros_like(u_k_real)
+
+        # Peso de advección (calibrar: demasiado alto → ruido, muy bajo → no efecto)
+        ADV_WEIGHT = 0.05  # conservador: solo 5% del push macro
+
         for t in range(T_len - 1):
-            # Revert modes: O-U
+            # Revert modes: O-U + advección
             u_k_pred[t + 1] = u_k_real[t] * decay + eq_term
+
+            # Sumar advección (el empuje del capital macro)
+            if t < len(v_spectral):
+                u_k_pred[t + 1] += ADV_WEIGHT * v_spectral[t]
 
             # Trend modes: momentum extrapolation
             if n_trend > 0 and t >= MOMENTUM_WIN:
                 for k in range(self.N):
                     if not is_trend[k]:
                         continue
-                    # Momentum = media de Δu_k en ventana reciente
                     deltas = np.diff(u_k_real[max(0, t-MOMENTUM_WIN):t+1, k])
                     if len(deltas) > 0:
-                        beta_k = np.mean(deltas)  # drift medio
+                        beta_k = np.mean(deltas)
                         u_k_pred[t + 1, k] = u_k_real[t, k] + beta_k
+                        # Trend modes también reciben advección
+                        if t < len(v_spectral):
+                            u_k_pred[t + 1, k] += ADV_WEIGHT * v_spectral[t, k]
 
         # Residuos espectrales
         self.spectral_res = u_k_real - u_k_pred  # (T, N)
@@ -204,6 +232,136 @@ class HeatEngine:
 
         # Z-scores (normalizar por volatilidad rolling)
         self._compute_z_scores()
+
+        # Refuge signal
+        self._compute_refuge_signal()
+
+    def _compute_macro_velocity(self, T_len: int):
+        """
+        v(t) = β · ΔM(t) + injection(t)
+
+        ΔM(t): tasa de cambio z-normalizada de [VIX, DXY, yield_curve, copper, oil]
+        β:     sensibilidad de cada activo a cada macro (rolling 120d regression)
+        injection(t): capital neto entrando/saliendo del sistema
+
+        El capital NO se conserva: QE inyecta, QT extrae, defaults destruyen.
+        injection(t) = Σ_i ret_i(t) · cap_i  (si el mercado sube en agregado,
+        hay capital neto entrando — vía earnings, buybacks, inversión real)
+        """
+        gb = self.gb
+        returns = gb.returns.apply(pd.to_numeric, errors='coerce').fillna(0).values
+        T, N = returns.shape
+
+        # Macro series como arrays
+        macro_series = {}
+        dates = gb.returns.index
+
+        for name, series in [("vix", gb.vix), ("dxy", gb.dxy),
+                              ("yield", gb.yield_spread),
+                              ("copper", gb.copper), ("oil", gb.oil)]:
+            if len(series) > 0:
+                macro_series[name] = series.reindex(dates).ffill().bfill().values
+            else:
+                macro_series[name] = np.zeros(T)
+
+        n_macro = len(macro_series)
+        macro_names = list(macro_series.keys())
+        macro_data = np.column_stack([macro_series[n] for n in macro_names])  # (T, 5)
+
+        # ΔM(t): z-normalized rate of change (20d window)
+        WIN = 20
+        delta_macro = np.zeros_like(macro_data)
+        for j in range(n_macro):
+            for t in range(WIN, T):
+                change = macro_data[t, j] - macro_data[t - WIN, j]
+                std = np.std(macro_data[max(0, t-120):t, j])
+                delta_macro[t, j] = change / max(std, 1e-8)
+
+        # β(t): sensibilidad rolling (120d) de cada activo a cada macro
+        BETA_WIN = 120
+        betas = np.zeros((T, N, n_macro))  # (T, N, 5)
+
+        for t in range(BETA_WIN, T):
+            ret_window = returns[t-BETA_WIN:t, :]       # (120, N)
+            dm_window = delta_macro[t-BETA_WIN:t, :]    # (120, 5)
+
+            for j in range(n_macro):
+                dm_j = dm_window[:, j]
+                dm_var = np.var(dm_j)
+                if dm_var < 1e-12:
+                    continue
+                for i in range(N):
+                    cov_ij = np.cov(ret_window[:, i], dm_j)[0, 1]
+                    betas[t, i, j] = cov_ij / dm_var
+
+        # v(t) = Σ_j β_ij · ΔM_j(t)  → (T, N)
+        self.macro_velocity = np.zeros((T, N))
+        for t in range(BETA_WIN, T):
+            self.macro_velocity[t] = betas[t] @ delta_macro[t]  # (N,5)·(5,) = (N,)
+
+        # Capital flow: net capital entering/leaving the system
+        # Si Σ returns > 0 → capital neto entrando (earnings, buybacks, QE)
+        # Si Σ returns < 0 → capital saliendo (QT, defaults, panic selling)
+        self.capital_flow = np.nanmean(returns, axis=1)  # (T,) retorno medio del mercado
+
+        # Suavizar capital flow (20d EMA)
+        cap_ema = np.zeros(T)
+        alpha_ema = 2.0 / (WIN + 1)
+        cap_ema[0] = self.capital_flow[0]
+        for t in range(1, T):
+            cap_ema[t] = alpha_ema * self.capital_flow[t] + (1 - alpha_ema) * cap_ema[t-1]
+        self.capital_flow_smooth = cap_ema
+
+        # Añadir injection al velocity: cuando capital entra al sistema,
+        # empuja a TODOS los activos proporcionalmente a su beta de mercado
+        for t in range(BETA_WIN, T):
+            injection = cap_ema[t] * 10  # scale factor
+            self.macro_velocity[t] += injection  # uniform push
+
+    def _compute_refuge_signal(self):
+        """
+        Refuge signal ∈ [-1, +1]:
+          +1 = ir a refugio (bonds/gold) — capital sale de equity
+          -1 = ir a equity — capital entra a risk-on
+           0 = neutral
+
+        Basado en:
+          1. v(t) de activos refuge vs equity
+          2. capital_flow_smooth dirección
+          3. s(t) nivel de stress
+        """
+        gb = self.gb
+        tickers = self.tickers
+        sectors = gb.sectors
+
+        # Indices de activos refuge vs equity
+        refuge_idx = []
+        equity_idx = []
+        for s in ["BONDS_GOVT", "BONDS_CORP", "COMMODITIES"]:
+            refuge_idx.extend([tickers.index(t) for t in sectors.get(s, []) if t in tickers])
+        for s in ["TECH_MEGA", "TECH_SEMIS", "BANKS", "ENERGY", "CONSUMER_DISC"]:
+            equity_idx.extend([tickers.index(t) for t in sectors.get(s, []) if t in tickers])
+
+        if not refuge_idx or not equity_idx or len(self.macro_velocity) == 0:
+            self.refuge_signal = 0.0
+            return
+
+        # v medio de refugio vs equity (último valor)
+        v_refuge = np.mean(self.macro_velocity[-1, refuge_idx])
+        v_equity = np.mean(self.macro_velocity[-1, equity_idx])
+
+        # Capital flow direction
+        cap_dir = self.capital_flow_smooth[-1] if len(self.capital_flow_smooth) > 0 else 0
+
+        # Refuge signal:
+        # v_refuge > v_equity → capital fluye a refugio → +1
+        # v_equity > v_refuge → capital fluye a equity → -1
+        raw = v_refuge - v_equity
+        # Normalizar a [-1, +1]
+        self.refuge_signal = float(np.clip(raw * 20, -1, 1))
+
+        # Modular por stress: si s bajo (crisis), signal es más creíble
+        self.refuge_signal *= (1 + (1 - gb.s))
 
     def _compute_z_scores(self):
         """z[i,t] = ε[i,t] / σ_ε[i, rolling]"""

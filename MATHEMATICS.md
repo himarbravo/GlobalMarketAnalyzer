@@ -234,3 +234,93 @@ graph TD
     C -->|"Φ, λ"| H[perturbation_simulator]
     C -->|"Φ, λ"| I[reverse_engineer]
 ```
+
+---
+
+## 9. Advección — Flujos de Capital
+
+### 9.1 Ecuación completa (actual)
+
+$$\frac{\partial u}{\partial t} = -\alpha \cdot L^s \cdot u + v(t) + f(t)$$
+
+El término **v(t)** es la velocidad macro — hacia dónde fluye el capital:
+
+$$v_i(t) = \sum_j \beta_{ij}(t) \cdot \Delta M_j(t) + \text{injection}(t)$$
+
+| Componente | Fórmula | Significado |
+|---|---|---|
+| $\beta_{ij}$ | Regresión rolling 120d de $r_i$ vs $\Delta M_j$ | Sensibilidad del activo i al macro j |
+| $\Delta M_j$ | Z-change 20d de VIX, DXY, yield, copper, oil | Velocidad de cambio macro |
+| injection(t) | $\overline{r}(t)$ suavizado (EMA 20d) | Capital neto entrando/saliendo del sistema |
+
+### 9.2 Decontaminación de W
+
+Antes de construir el grafo, se elimina el factor de mercado:
+
+$$r_i^{resid}(t) = r_i(t) - \beta_i^{mkt} \cdot \bar{r}(t)$$
+
+Las correlaciones se calculan sobre $r^{resid}$, capturando relaciones reales (sustitución, cadena de suministro) sin co-movimiento espurio.
+
+### 9.3 Capital NO se conserva
+
+> [!IMPORTANT]
+> A diferencia de la ecuación del calor clásica, el mercado financiero es un **sistema abierto**. El capital se crea (QE, earnings, inversión) y se destruye (QT, defaults, quiebras). El modo $k=0$ ($\lambda_0=0$) NO es conservación de capital — es la tendencia neta del sistema.
+
+---
+
+## 10. Evolución Futura: Modelo de Dos Campos $u(t), c(t)$
+
+### 10.1 El problema fundamental
+
+La ecuación actual tiene **un solo campo** $u(t)$ que mezcla precio y valor real. Pero:
+
+- Hay empresas que **crean capital** (FCF positivo, ROIC > WACC) y otras que no
+- El precio no siempre lo refleja (burbujas, inflación, sentiment)
+- Una empresa que "crece" con la inflación puede **destruir capital real**
+
+### 10.2 Sistema acoplado propuesto
+
+Dos campos en el grafo:
+
+$$\frac{\partial u}{\partial t} = -\alpha_u \cdot L^s \cdot u + \kappa \cdot (c - u) + f_u$$
+
+$$\frac{\partial c}{\partial t} = -\alpha_c \cdot L^s \cdot c + g(t)$$
+
+| Campo | Significado | Fuente |
+|---|---|---|
+| $u(t)$ | Precio/temperatura (lo que el mercado DICE) | Retornos reales observados |
+| $c(t)$ | Capital real (lo que la empresa CREA) | FCF, ROIC, revenue real |
+| $\kappa \cdot (c - u)$ | Acoplamiento: el precio tiende al capital | Fuerza restauradora |
+| $g(t)$ | Tasa de creación de capital | Fundamentales time-varying |
+
+### 10.3 La señal de trading: mispricing
+
+$$\delta_i(t) = u_i(t) - c_i(t)$$
+
+- $\delta > 0$: precio > capital real → **sobrevalorado** (vender cuando trend confirma)
+- $\delta < 0$: precio < capital real → **infravalorado** (comprar cuando trend confirma)
+- La correlación entre $u$ y $c$ varía: alta en mercados eficientes, baja en burbujas
+
+### 10.4 Medición de c(t)
+
+Se puede construir $c(t)$ con datos existentes en Supabase:
+
+$$c_i(t) = \int_0^t \text{FCF\_yield}_i(\tau) - \pi(\tau) \, d\tau$$
+
+O equivalentemente, el capital real acumulado:
+
+$$\Delta c_i(t) = \frac{\text{FCF}_i}{P_i} - \text{inflación} + \frac{(\text{ROIC}_i - \text{WACC}_i)}{252}$$
+
+---
+
+## 11. Roadmap de Mejoras
+
+| Prioridad | Mejora | Impacto esperado | Implementación |
+|---|---|---|---|
+| 🔴 Alta | Campo dual $u/c$ | Señal de mispricing real | Nueva ecuación acoplada |
+| 🟡 Media | W multicapa (sustitución + supply chain) | Grafo más limpio | Datos de supply chain |
+| 🟡 Media | Calibración ADV_WEIGHT óptima | Mejorar C2/C3 | Grid search con OOS |
+| 🟢 Baja | Options data (skew, term structure) | Forward-looking volatility | API de opciones |
+| 🟢 Baja | Flujos institucionales | Smart money tracking | 13F filings data |
+```
+

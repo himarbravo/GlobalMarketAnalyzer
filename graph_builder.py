@@ -324,6 +324,11 @@ class GraphBuilder:
         """
         Para cada par (i,j), encuentra el lag que maximiza |corr|.
 
+        DECONTAMINATION: Antes de correlacionar, elimina el factor
+        común de mercado (retorno medio cross-sectional) para que W
+        capture relaciones reales (sustitución, supply chain) y no
+        co-movimiento espurio por exposición al mercado.
+
         Args:
             data: (T, N) array de retornos, float64
 
@@ -335,9 +340,23 @@ class GraphBuilder:
         W = np.zeros((N, N))
         W_lag = np.zeros((N, N), dtype=int)
 
-        # Reemplazar NaN por 0 para correlación (pandas lo hace pairwise,
-        # pero aquí lo hacemos manual por velocidad con lag)
+        # Reemplazar NaN por 0
         data_clean = np.nan_to_num(data, nan=0.0)
+
+        # ─── DECONTAMINATION: quitar factor de mercado ───
+        # El factor de mercado es el retorno medio cross-sectional
+        # β_i = cov(ret_i, ret_mkt) / var(ret_mkt)
+        # ret_residual_i = ret_i - β_i · ret_mkt
+        mkt_ret = np.nanmean(data_clean, axis=1)  # (T,) retorno medio del mercado
+        mkt_var = np.var(mkt_ret)
+        if mkt_var > 1e-12:
+            betas = np.array([
+                np.cov(data_clean[:, i], mkt_ret)[0, 1] / mkt_var
+                for i in range(N)
+            ])
+            data_resid = data_clean - np.outer(mkt_ret, betas)  # (T, N)
+        else:
+            data_resid = data_clean
 
         for i in range(N):
             for j in range(i + 1, N):
@@ -346,11 +365,11 @@ class GraphBuilder:
 
                 for lag in range(-MAX_LAG, MAX_LAG + 1):
                     if lag >= 0:
-                        x = data_clean[:T - lag, i]
-                        y = data_clean[lag:, j]
+                        x = data_resid[:T - lag, i]
+                        y = data_resid[lag:, j]
                     else:
-                        x = data_clean[-lag:, i]
-                        y = data_clean[:T + lag, j]
+                        x = data_resid[-lag:, i]
+                        y = data_resid[:T + lag, j]
 
                     if len(x) < 15:
                         continue
