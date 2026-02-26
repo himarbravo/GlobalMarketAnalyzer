@@ -4,8 +4,9 @@ FUNDAMENTAL FILTER — GlobalMarketAnalyzer
 Clasifica activos en "creadores de valor" vs "especulativos".
 Genera el término fuente f(t) de la ecuación O-U.
 
-Score Fundamental:
-  F = w1·FCF_yield + w2·ROIC_excess + w3·growth_real + w4·quality
+Score Fundamental (7 componentes):
+  F = w1·FCF_yield + w2·ROIC_excess + w3·growth_real
+    + w4·quality + w5·valuation + w6·analyst + w7·momentum_quality
   f = γ · tanh(F / F₀)
 
   F >> 0  →  fuente de calor  (empresa genera capital)
@@ -18,11 +19,14 @@ import pandas as pd
 from database_manager import DatabaseManager
 
 
-# ── Pesos del score fundamental ──
-W_FCF       = 0.35
-W_ROIC      = 0.25
-W_GROWTH    = 0.25
-W_QUALITY   = 0.15
+# ── Pesos del score fundamental (7 componentes) ──
+W_FCF       = 0.20    # Free cash flow yield
+W_ROIC      = 0.20    # Return on invested capital vs WACC
+W_GROWTH    = 0.15    # Revenue growth real
+W_QUALITY   = 0.15    # Solvencia + margins
+W_VALUATION = 0.15    # Forward PE, EV/EBITDA — ¿está barato?
+W_ANALYST   = 0.10    # Consenso de analistas
+W_MOMENTUM_Q = 0.05   # Momentum quality (beta-adjusted)
 
 # ── Parámetros del source term ──
 GAMMA       = 0.01    # tasa diaria máxima de source/sink
@@ -31,35 +35,93 @@ WACC_PROXY  = 0.08    # coste de capital estimado (8%)
 
 def compute_fundamental_score(row: dict, inflation_annual: float = 0.03) -> float:
     """
-    Calcula F para un activo dado su dict de fundamentales.
-    Devuelve un float (puede ser negativo, cero, o positivo).
+    Calcula F para un activo usando 7 componentes.
+    Usa todos los datos disponibles en la tabla fundamentals.
     """
-    # FCF yield: cash libre que genera / capitalización
+    # ── 1. FCF yield ──
     mc  = row.get("market_cap")
     fcf = row.get("free_cash_flow")
     fcf_yield = (fcf / mc) if (mc and mc > 0 and fcf is not None) else 0.0
 
-    # ROIC excess: retorna más de lo que cuesta el capital?
-    roe = row.get("roe") or 0.0
-    roa = row.get("roa") or 0.0
-    roic = max(roe, roa)
+    # ── 2. ROIC excess ──
+    # Usar ROIC real si disponible, sino max(ROE, ROA)
+    roic = row.get("roic")
+    if roic is None:
+        roe = row.get("roe") or 0.0
+        roa = row.get("roa") or 0.0
+        roic = max(roe, roa)
     roic_excess = roic - WACC_PROXY
 
-    # Crecimiento real: crece por encima de inflación?
+    # ── 3. Crecimiento real ──
     rev_growth = row.get("revenue_growth") or 0.0
-    growth_real = rev_growth - inflation_annual
+    earn_growth = row.get("earnings_growth") or rev_growth  # fallback
+    growth_real = (0.6 * rev_growth + 0.4 * earn_growth) - inflation_annual
 
-    # Quality: solvencia y estabilidad
+    # ── 4. Quality: solvencia + margins ──
     d2e = row.get("debt_to_equity")
     cr  = row.get("current_ratio")
-    q_debt  = max(0.0, 1.0 - (d2e / 3.0)) if (d2e is not None) else 0.5
-    q_liq   = 1.0 if (cr is not None and cr > 1.0) else 0.5
-    quality = q_debt * q_liq
+    gm  = row.get("gross_margin") or 0.5
+    om  = row.get("operating_margin") or 0.1
+    nm  = row.get("net_margin") or 0.05
 
-    F = (W_FCF * fcf_yield +
-         W_ROIC * roic_excess +
-         W_GROWTH * growth_real +
-         W_QUALITY * quality)
+    q_debt  = max(0.0, 1.0 - (d2e / 200.0)) if (d2e is not None) else 0.5
+    q_liq   = min(1.0, cr / 2.0) if (cr is not None and cr > 0) else 0.5
+    q_margin = min(1.0, gm * 1.5)  # gross margin 66%+ = score 1.0
+    quality = 0.3 * q_debt + 0.2 * q_liq + 0.3 * q_margin + 0.2 * min(1.0, max(0, om * 5))
+
+    # ── 5. Valuation: ¿está barato vs sector? ──
+    fwd_pe = row.get("forward_pe")
+    ev_ebitda = row.get("ev_ebitda")
+    pb = row.get("pb_ratio")
+
+    # Menor PE/EV_EBITDA = más barato = score más alto
+    val_pe = max(0, 1.0 - (fwd_pe / 40.0)) if (fwd_pe and fwd_pe > 0) else 0.5
+    val_ev = max(0, 1.0 - (ev_ebitda / 25.0)) if (ev_ebitda and ev_ebitda > 0) else 0.5
+    val_pb = max(0, 1.0 - (pb / 10.0)) if (pb and pb > 0) else 0.5
+    valuation = 0.4 * val_pe + 0.4 * val_ev + 0.2 * val_pb
+
+    # ── 6. Analyst consensus ──
+    target = row.get("target_mean_price")
+    price = mc / (row.get("shares_outstanding") or 1e18) if mc else None
+    rec = row.get("recommendation")
+    n_analysts = row.get("num_analysts") or 0
+
+    # Target upside
+    if target and price and price > 0:
+        upside = (target - price) / price
+        analyst_score = np.clip(upside, -0.5, 0.5)  # cap at ±50%
+    else:
+        analyst_score = 0.0
+
+    # Recommendation boost (1=strong buy, 5=strong sell)
+    if rec:
+        rec_map = {"strongBuy": 0.3, "buy": 0.15, "hold": 0.0,
+                   "sell": -0.15, "strongSell": -0.3}
+        if isinstance(rec, str):
+            analyst_score += rec_map.get(rec, 0.0)
+
+    # Weight by analyst coverage (more analysts = more reliable)
+    analyst_weight = min(1.0, n_analysts / 20) if n_analysts else 0.3
+    analyst_final = analyst_score * analyst_weight
+
+    # ── 7. Momentum quality (beta-adjusted) ──
+    beta = row.get("beta") or 1.0
+    inst_pct = row.get("institutional_pct") or 0.5
+    # High institutional + low beta = quality momentum
+    momentum_q = inst_pct * (1.0 / max(beta, 0.5)) * 0.5
+
+    # ── Score final ──
+    F = (W_FCF       * fcf_yield +
+         W_ROIC      * roic_excess +
+         W_GROWTH    * growth_real +
+         W_QUALITY   * quality +
+         W_VALUATION * (valuation - 0.5) +  # centrar en 0
+         W_ANALYST   * analyst_final +
+         W_MOMENTUM_Q * (momentum_q - 0.25))  # centrar
+
+    # Guard: si algún componente es NaN, devolver 0 (neutral)
+    if np.isnan(F) or np.isinf(F):
+        return 0.0
 
     return float(F)
 

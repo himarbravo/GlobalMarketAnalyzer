@@ -71,3 +71,24 @@
 - s(t) = 0.826 (antes 0.821 — DXY=97.7 por debajo de stress threshold 98, no añade stress)
 - 13 categorías de sector (vs 9 hardcoded): +Intl, +Factors, +Sectors, +Real_Estate
 - Event 2025-04-09: 13 sectores afectados (antes solo 9), incluyendo Real_Estate +5.5% e Intl +7.3%
+
+---
+
+### Phase 4: Fundamentales completos (7 componentes)
+
+**Score enriquecido de 4 a 7 componentes:**
+| Component | Weight | Columns Used |
+|---|---|---|
+| FCF yield | 0.20 | free_cash_flow, market_cap |
+| ROIC excess | 0.20 | roic (real), roe, roa |
+| Growth real | 0.15 | revenue_growth, earnings_growth |
+| Quality | 0.15 | debt_to_equity, current_ratio, gross_margin, operating_margin |
+| Valuation | 0.15 | forward_pe, ev_ebitda, pb_ratio |
+| Analyst | 0.10 | target_mean_price, recommendation, num_analysts, shares_outstanding |
+| Momentum Q | 0.05 | beta, institutional_pct |
+
+**Resultados:**
+- Top: MA(+0.53), NVDA(+0.42), AMGN(+0.39), AAPL(+0.38), LLY(+0.37)
+- 25 value_creators, 1 speculative_mild, 42 speculative (ETFs sin fundamentals)
+- NaN guard añadido para tickers con datos incompletos
+- Uso total de columnas: 14/52 fundamentals + ~15 macro + vol/volume = **~35 columnas activas** (antes 9)
