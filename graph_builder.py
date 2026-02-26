@@ -68,6 +68,11 @@ class GraphBuilder:
         self.returns: pd.DataFrame = pd.DataFrame()     # (T, N) log returns reales
         self.prices: pd.DataFrame = pd.DataFrame()       # (T, N) closes
 
+        # Indicadores técnicos cargados
+        self.vol_20d: pd.DataFrame = pd.DataFrame()      # (T, N) volatilidad realizada 20d
+        self.volume: pd.DataFrame = pd.DataFrame()        # (T, N) volumen
+        self.atr_14: pd.DataFrame = pd.DataFrame()        # (T, N) Average True Range
+
         # Macro
         self.vix: pd.Series = pd.Series(dtype=float)
         self.yield_spread: pd.Series = pd.Series(dtype=float)
@@ -118,6 +123,20 @@ class GraphBuilder:
         self.prices = self.prices.dropna(axis=1, how="all")
         self.tickers = list(self.prices.columns)
         self.N = len(self.tickers)
+
+        # --- Indicadores técnicos ---
+        self.vol_20d = self.db.get_prices_multi(
+            self.tickers, start_date=start_date, end_date=end_date,
+            column="vol_20d"
+        )
+        self.volume = self.db.get_prices_multi(
+            self.tickers, start_date=start_date, end_date=end_date,
+            column="volume"
+        )
+        self.atr_14 = self.db.get_prices_multi(
+            self.tickers, start_date=start_date, end_date=end_date,
+            column="atr_14"
+        )
 
         # --- Macro ---
         macro_resp = self.db.client.table("macro_indicators").select(
@@ -224,6 +243,28 @@ class GraphBuilder:
         W_combined = np.zeros((self.N, self.N))
         for win_size, weight in zip(SCALE_WINDOWS, [w_fast, w_mid, w_slow]):
             W_combined += weight * self.W_scales[win_size]
+
+        # ─── Volatility-adaptive threshold: alta vol → necesita más correlación ───
+        if not self.vol_20d.empty:
+            vol_data = self.vol_20d.tail(60).mean()
+            vol_data = vol_data.reindex(self.tickers).fillna(30).values.astype(np.float64)
+            vol_data = vol_data / 100  # de % a fracción
+            # Threshold adaptativo: base + exceso de vol
+            vol_pair = np.sqrt(np.outer(vol_data, vol_data))
+            threshold_matrix = CORR_THRESHOLD + 0.05 * np.clip(vol_pair - 0.25, 0, 0.5)
+            mask_below = np.abs(W_combined) < threshold_matrix
+            W_combined[mask_below] = 0.0
+
+        # ─── Volume weighting: aristas entre activos líquidos son más fiables ───
+        # Se aplica DESPUÉS del threshold para no matar aristas con buena corr
+        if not self.volume.empty:
+            vol_avg = self.volume.tail(60).mean()
+            vol_avg = vol_avg.reindex(self.tickers).fillna(0).values.astype(np.float64)
+            vol_norm = vol_avg / (np.max(vol_avg) + 1e-10)  # [0,1]
+            vol_weight = np.sqrt(np.outer(vol_norm, vol_norm))
+            # Boost moderado: 0.85 base + 0.15 × vol (no reduce demasiado)
+            vol_boost = 0.85 + 0.15 * vol_weight
+            W_combined = W_combined * vol_boost
 
         self.W_direct = W_combined.copy()  # guardar antes de añadir W²,W³
 
