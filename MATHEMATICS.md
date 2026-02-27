@@ -268,93 +268,125 @@ Las correlaciones se calculan sobre $r^{resid}$, capturando relaciones reales (s
 
 ---
 
-## 10. Modelo de Fluido-Temperatura: $c$ (materia), $\lambda$ (temperatura)
+## 10. El Modelo de Agua sobre Paisaje: Dinero, Capital, y Precio
 
-### 10.1 La analogía correcta
+### 10.1 Las tres cosas que no son lo mismo
 
-| Concepto físico | Concepto financiero | Variable |
+En los mercados financieros se confunden constantemente tres magnitudes que son radicalmente distintas:
+
+**Dinero ($m$)** — El agua. Un medio de intercambio que fluye entre personas. Cuando compras acciones de AAPL, tu dinero va al vendedor. Apple no recibe nada. El dinero es fungible (un dólar es igual a otro), se conserva en cada transacción (tú pierdes $150, el vendedor los gana), pero NO se conserva globalmente: los bancos centrales lo crean (QE) y destruyen (QT).
+
+**Capital ($K$)** — El terreno. La capacidad productiva real de cada empresa: las fábricas de TSMC, las patentes de Apple, los ingenieros de NVIDIA, la red logística de Amazon. El capital NO se mueve cuando alguien compra o vende acciones. Se crea lentamente (inversión en I+D, construcción de fábricas, contratación) y se destruye lentamente (depreciación, obsolescencia, quiebra). Es lo que realmente **produce** valor.
+
+**Precio ($u$)** — La profundidad del agua. Es lo que observamos en el mercado. No es ni dinero ni capital: es cuánto dinero ha decidido el mercado asignar a cada unidad de capital. Si hay mucha agua (dinero) sobre un terreno bajo (poco capital productivo), el precio es alto pero vacío: **burbuja**. Si hay poca agua sobre terreno alto, el precio es bajo pero sustancioso: **oportunidad**.
+
+### 10.2 La analogía del paisaje
+
+Imaginemos un terreno con montañas y valles. El agua (dinero) fluye sobre este terreno:
+
+```
+     DINERO (agua)                    CAPITAL (terreno)
+     ~~~~~~~~~~~~                     ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+    ~~~~~~~~~~~~~~                   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+   ~~~~~~~~~~~~~~~~                 ▓▓▓ NVDA ▓▓▓▓▓▓▓▓▓▓▓
+  ~~AAPL~~~~~NVDA~~~~              ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ~~~~~~~~~~~~~~~~~~~    ~~       ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  ▓▓▓▓▓▓
+  ~~~~~~~~~~~~~~~~~~~ ~~SMCI~    ▓▓ AAPL ▓▓▓▓▓▓▓▓    ▓▓▓▓▓
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓      ▓SMCI
+  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+
+  Profundidad λ = agua/terreno = dinero asignado / capital real
+  AAPL: λ moderado (agua proporcional al terreno) → bien valorada
+  NVDA: λ alto (mucha agua sobre terreno grande) → ¿burbuja o justificado?
+  SMCI: λ extremo (bastante agua, poco terreno) → probable burbuja
+```
+
+| Concepto físico | Concepto financiero | Variable | Fluye por el grafo? |
+|---|---|---|---|
+| **Agua** | Dinero del inversor | $m_i(t)$ | **SÍ** — es lo que se redistribuye al comprar/vender |
+| **Terreno** | Capital productivo real | $K_i(t)$ | **NO** — fijo en cada empresa, cambia lento |
+| **Profundidad** | Múltiplo de valoración | $\lambda_i = m_i / K_i$ | Derivado de los otros dos |
+| **Nivel observable** | Precio de la acción | $u_i = \lambda_i \cdot K_i$ | Lo que vemos en Bloomberg |
+
+### 10.3 Las ecuaciones
+
+#### Ecuación del dinero (el fluido que fluye)
+
+$$\frac{\partial m_i}{\partial t} = -\alpha_m \cdot L \cdot m_i + v_i(t) + \text{QE}(t)$$
+
+El dinero se redistribuye entre activos por el Laplaciano del grafo (difusión: dinero fluye de donde hay mucho a donde hay poco, por arbitraje). La advección $v(t)$ captura flujos macro direccionales (flight to safety, risk-on rotation). QE/QT inyecta o retira dinero del sistema entero.
+
+> [!IMPORTANT]
+> El dinero **se conserva** en cada transacción individual (compra = venta), pero **NO se conserva** globalmente: QE lo crea, QT lo destruye, y los defaults lo evaporan.
+
+#### Ecuación del capital (el terreno que cambia lento)
+
+$$\frac{\partial K_i}{\partial t} = g_i(t)$$
+
+El capital no tiene difusión ni convección — no se mueve entre empresas por el grafo. Las fábricas de Apple no "fluyen" a Microsoft. $g_i(t)$ captura la creación y destrucción local:
+
+$$g_i(t) = \underbrace{\text{CAPEX}_i + \text{I+D}_i}_{\text{inversión}} - \underbrace{\text{depreciación}_i}_{\text{desgaste}} + \underbrace{\text{FCF}_i \cdot \mathbb{1}_{\text{ROIC} > \text{WACC}}}_{\text{valor económico añadido}}$$
+
+| Mecanismo | $g_i$ | Ejemplo |
 |---|---|---|
-| **Fluido (materia)** | Capital real | $c_i(t)$ — la sustancia que fluye |
-| **Temperatura del fluido** | Múltiplo de valoración | $\lambda_i(t)$ — propiedad transportada por c |
-| **Energía observable** | Precio (lo que se ve en el mercado) | $u_i(t) = \lambda_i \cdot c_i$ |
-| **Velocidad del fluido** | Dirección de los flujos de capital | $v(t)$ — advección macro |
-| **Fuentes/sumideros** | Creación/destrucción de capital real | $g_i(t)$ — earnings, QE, defaults |
-
-El capital ($c$) es la **materia** — se mueve, fluye entre sectores, entra y sale del sistema. Lambda ($\lambda$) es la **temperatura** que viaja CON el capital: cuando el capital sale de tech y va a bonos, lleva consigo las expectativas de valoración.
-
-### 10.2 Ecuaciones del sistema acoplado
-
-#### Ecuación de continuidad del capital (el fluido)
-$$\frac{\partial c_i}{\partial t} = - \nabla \cdot (c_i \cdot v_i) - \alpha_c \cdot L \cdot c_i + g_i(t)$$
-
-| Término | Significado |
-|---|---|
-| $-\nabla \cdot (c \cdot v)$ | **Convección**: el capital fluye por el grafo con velocidad $v$ |
-| $-\alpha_c \cdot L \cdot c$ | **Difusión**: el capital se redistribuye hacia equilibrio |
-| $g_i(t)$ | **Fuentes/sumideros**: FCF crea capital, defaults lo destruyen, QE lo inyecta |
-
-En el grafo, la divergencia $\nabla \cdot (c \cdot v)$ se discretiza como:
-$$[\nabla \cdot (c \cdot v)]_i = \sum_{j \in \mathcal{N}(i)} W_{ij} \cdot (c_j \cdot v_j - c_i \cdot v_i)$$
-
-#### Ecuación de advección-difusión de λ (la temperatura)
-$$\frac{\partial \lambda_i}{\partial t} = - v_i \cdot \nabla \lambda_i - \alpha_\lambda \cdot L^s \cdot (\lambda_i - \lambda_{eq}(s)) + \eta \cdot \frac{\Delta c_i}{c_i}$$
-
-| Término | Significado |
-|---|---|
-| $-v \cdot \nabla \lambda$ | **Advección**: λ es arrastrada POR el flujo de capital |
-| $-\alpha_\lambda L^s (\lambda - \lambda_{eq})$ | **Difusión fraccional**: λ se contagia lento entre empresas similares |
-| $\eta \cdot \Delta c / c$ | **Shock local**: cuando c salta (earnings surprise), λ reacciona |
-
-En el grafo:
-$$[v \cdot \nabla \lambda]_i = \sum_{j \in \mathcal{N}(i)} W_{ij} \cdot v_{ij} \cdot (\lambda_j - \lambda_i)$$
+| Apple invierte en R&D para el Vision Pro | $g > 0$ | Capital intelectual creado |
+| TSMC construye fábrica de 3nm en Arizona | $g > 0$ | Capital físico creado |
+| El film fotográfico de Kodak se vuelve inútil | $g \ll 0$ | Capital destruido por obsolescencia |
+| Lehman quiebra, activos liquidados | $g = -K$ | Capital total destruido |
+| Fed hace QE de $4T | $g_{sistema} > 0$ | No crea capital real, pero infla $m$ |
 
 #### Precio observable
-$$u_i(t) = \lambda_i(t) \cdot c_i(t)$$
 
-El precio no tiene ecuación propia — es el **producto** de cuánto capital hay × cuánto lo valora el mercado.
+$$u_i(t) = \lambda_i(t) \cdot K_i(t) = \frac{m_i(t)}{K_i(t)} \cdot K_i(t) = m_i(t)$$
 
-### 10.3 Velocidad del fluido $v(t)$
+> [!NOTE]
+> Observación sorprendente: el precio de un activo es simplemente **cuánto dinero tiene asignado**. Un activo "caro" es uno que tiene mucho dinero apuntándole. Un activo "barato" tiene poco dinero asignado relativo a su capital productivo. El trading es reasignar dinero entre activos.
 
-La velocidad del capital es el campo que ya calculamos como macro velocity:
-
-$$v_i(t) = \sum_j \beta_{ij}(t) \cdot \Delta M_j(t) + \text{injection}(t)$$
-
-Pero ahora tiene interpretación física: es la velocidad de flujo del capital en el nodo $i$. Capital flows TO $i$ si $v_i > 0$ y AWAY si $v_i < 0$.
-
-### 10.4 Equilibrio de λ por régimen
-
-$$\lambda_{eq}(s) = \begin{cases}
-\lambda_{crisis} \approx 5-8 & \text{si } s < 0.40 \\
-\lambda_{stress} \approx 10-15 & \text{si } 0.40 \leq s < 0.65 \\
-\lambda_{normal} \approx 18-22 & \text{si } 0.65 \leq s < 0.85 \\
-\lambda_{hype} \approx 30-50 & \text{si } s \geq 0.85
-\end{cases}$$
-
-Calibrado históricamente: $\lambda_{eq}(R) = \text{median}(\lambda_i)$ para días en régimen $R$.
-
-### 10.5 La señal de trading: mispricing
+### 10.4 La señal de trading
 
 $$\delta_i(t) = \lambda_i(t) - \lambda_{eq}(s(t))$$
 
-O equivalentemente, usando el reescalado empírico $\lambda^*_i(R)$:
+Donde $\lambda_{eq}(s)$ es el múltiplo de equilibrio para el régimen actual:
 
-$$\delta_i(t) = \frac{u_i(t)}{c_i(t)} - \lambda^*_i(s(t))$$
+$$\lambda_i(t) = \frac{u_i(t)}{K_i(t)} \quad \text{(precio / capital productivo)}$$
 
-- $\delta > 0$: el mercado valora este capital MÁS de lo normal para este régimen → sobrevalorado
-- $\delta < 0$: lo valora MENOS → infravalorado
-- Cuando el capital FLUYE hacia $i$ ($v_i > 0$) Y $\delta_i < 0$ → señal fuerte de compra: el capital llega a algo infravalorado
+- $\delta > 0$: hay MÁS dinero asignado a este activo del normal para este régimen → **sobrevalorado**
+- $\delta < 0$: hay MENOS dinero del normal → **infravalorado**
+- Señal fuerte: $\delta < 0$ Y $v_i > 0$ → infravalorado Y el dinero está llegando → **compra**
+- Señal de huida: $\delta > 0$ Y $v_i < 0$ → sobrevalorado Y el dinero se va → **venta**
+
+### 10.5 Ejemplo: NVDA en 2023-2024
+
+```
+2022 Q4: K_NVDA = alto (GPUs, CUDA, datacenter). u_NVDA = $150
+         λ = $150 / K ≈ 15x → normal para tech
+         δ = 15 - 20 = -5 → infravalorado
+
+2023 Q2: ChatGPT explota. v_NVDA >> 0 (dinero fluye HACIA NVDA)
+         K no cambia aún (mismas fábricas, misma IP)
+         u_NVDA = $400. λ = $400/K ≈ 40x
+         δ = 40 - 20 = +20 → sobrevalorado?
+
+2023 Q4: NVDA reporta FCF $11B (antes $3B). K SUBE (capital real creó)
+         u_NVDA = $500. Pero K subió → λ = $500/K_nuevo ≈ 30x
+         δ = 30 - 25 = +5 → ligeramente caro, pero el terreno subió
+
+2024 Q2: Más dinero llega pero K sigue creciendo rápido
+         u_NVDA = $900. K sube más → λ ≈ 35x
+         δ = 35 - 30 = +5 → el modelo diría: caro pero justificado
+         Señal: HOLD (no vender aún, el capital crece)
+```
+
+La clave: la burbuja NO es que el precio suba. Es que el precio suba **sin que el capital productivo crezca proporcionalmente**. NVDA creó capital real (FCF ×4). SMCI subió 1000% sin crear capital proporcional → burbuja real.
 
 ### 10.6 Conservación y no-conservación
 
-> [!IMPORTANT]
-> El capital $c$ **NO se conserva**: $\sum_i g_i(t) \neq 0$
-> - QE: $g > 0$ para todos (inyección sistémica)
-> - Defaults: $g_i \ll 0$ para la empresa afectada
-> - Earnings: $g_i > 0$ localizado
->
-> Lambda $\lambda$ **tampoco se conserva** — el mercado puede decidir colectivamente valorar TODO a múltiplos más altos (expansión de múltiplos) o más bajos (contracción).
->
-> Lo que se conserva a corto plazo es el **dinero total**: cuando vendes AAPL y compras XOM, el flujo es $c_{AAPL} \to c_{XOM}$ sin creación neta. Pero a largo plazo, earnings crean y defaults destruyen.
+| Magnitud | ¿Conservada en trades? | ¿Conservada globalmente? |
+|---|---|---|
+| **Dinero** (m) | ✅ Sí: compra = venta | ❌ No: QE crea, QT destruye |
+| **Capital** (K) | ✅ Sí: no se mueve en trades | ❌ No: inversión crea, obsolescencia destruye |
+| **Precio** (u = m) | ✅ En cada transacción | ❌ Globalmente puede subir todo (inflación) o bajar todo (deflación) |
+| **λ = m/K** | ❌ No: cambia con cada trade | ❌ Puede expandirse (hype) o contraerse (crisis) colectivamente |
 
 ---
 
