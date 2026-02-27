@@ -268,59 +268,158 @@ Las correlaciones se calculan sobre $r^{resid}$, capturando relaciones reales (s
 
 ---
 
-## 10. Evolución Futura: Modelo de Dos Campos $u(t), c(t)$
+## 10. Modelo de Tres Campos: $u(t)$, $c(t)$, $\lambda(t)$
 
-### 10.1 El problema fundamental
+### 10.1 Vista general
 
-La ecuación actual tiene **un solo campo** $u(t)$ que mezcla precio y valor real. Pero:
+El mercado se describe por **tres campos** acoplados sobre el grafo:
 
-- Hay empresas que **crean capital** (FCF positivo, ROIC > WACC) y otras que no
-- El precio no siempre lo refleja (burbujas, inflación, sentiment)
-- Una empresa que "crece" con la inflación puede **destruir capital real**
+| Campo | Significado | Actualización | Difunde? |
+|---|---|---|---|
+| $u_i(t)$ | Precio real acumulado | Diario (precio observado) | Sí — capital redistribuido por L |
+| $c_i(t)$ | Capital real creado | Trimestral (earnings) | No — creación es local |
+| $\lambda_i(t)$ | Múltiplo de valoración | Diario (inferido de u/c) | Sí — por sector, dirigido |
 
-### 10.2 Sistema acoplado propuesto
+La **señal de trading** emerge de las divergencias entre estos campos:
+- $u > \lambda \cdot c$ → sobrevalorado respecto al régimen actual
+- $u < \lambda \cdot c$ → infravalorado, oportunidad
 
-Dos campos en el grafo:
+### 10.2 Ecuación completa del sistema
 
-$$\frac{\partial u}{\partial t} = -\alpha_u \cdot L^s \cdot u + \kappa \cdot (c - u) + f_u$$
+$$\frac{\partial u}{\partial t} = -\alpha \cdot L^s \cdot u + v(t) + f(t) + \kappa \cdot (\lambda \cdot c - u)$$
 
-$$\frac{\partial c}{\partial t} = -\alpha_c \cdot L^s \cdot c + g(t)$$
+$$\frac{\partial c}{\partial t} = g_i(t) \quad \text{(local, sin difusión)}$$
 
-| Campo | Significado | Fuente |
+$$\frac{\partial \lambda}{\partial t} = -\alpha_\lambda \cdot \tilde{L} \cdot (\lambda - \lambda_{eq}(s)) + \eta \cdot \frac{\Delta c}{c} + \xi \cdot \nabla_s u$$
+
+| Término | Ecuación | Significado |
 |---|---|---|
-| $u(t)$ | Precio/temperatura (lo que el mercado DICE) | Retornos reales observados |
-| $c(t)$ | Capital real (lo que la empresa CREA) | FCF, ROIC, revenue real |
-| $\kappa \cdot (c - u)$ | Acoplamiento: el precio tiende al capital | Fuerza restauradora |
-| $g(t)$ | Tasa de creación de capital | Fundamentales time-varying |
+| $-\alpha \cdot L^s \cdot u$ | Difusión fraccional | El capital se redistribuye por el grafo |
+| $v(t) = \beta \cdot \Delta M$ | Advección macro | Dónde fluye el dinero nuevo (QE/QT) |
+| $f(t)$ | Source fundamental | Creación/destrucción de valor fundamental |
+| $\kappa(\lambda c - u)$ | **Acoplamiento precio↔capital** | Fuerza restauradora: el precio tiende a $\lambda \cdot c$ |
+| $g_i(t)$ | Creación de capital real | FCF yield + EVA + growth real (trimestral) |
+| $-\alpha_\lambda \tilde{L} (\lambda - \lambda_{eq})$ | **Difusión de múltiplos** | Los PE ratios se contagian entre empresas similares |
+| $\eta \Delta c / c$ | Shock de earnings | Sorpresa positiva en capital → λ salta |
+| $\xi \nabla_s u$ | **Momentum de precio** | Si u sube rápido → λ sube (reflexividad de Soros) |
 
-### 10.3 La señal de trading: mispricing
+### 10.3 El grafo dirigido $\tilde{L}$
 
-$$\delta_i(t) = u_i(t) - c_i(t)$$
+Para la difusión de $\lambda$, el Laplaciano **no es simétrico**:
 
-- $\delta > 0$: precio > capital real → **sobrevalorado** (vender cuando trend confirma)
-- $\delta < 0$: precio < capital real → **infravalorado** (comprar cuando trend confirma)
-- La correlación entre $u$ y $c$ varía: alta en mercados eficientes, baja en burbujas
+$$\tilde{W}_{ij} \neq \tilde{W}_{ji}$$
 
-### 10.4 Medición de c(t)
+AAPL re-evalúa a todo tech (AAPL→MSFT fuerte), pero DELL no re-evalúa a AAPL (DELL→AAPL débil). El grafo dirigido se construye a partir de:
 
-Se puede construir $c(t)$ con datos existentes en Supabase:
+1. **Causalidad de Granger** entre retornos: ¿cambios en $i$ predicen cambios en $j$?
+2. **Capitalización asimétrica**: empresas grandes influyen más → $\tilde{W}_{ij} \propto \sqrt{MC_i / MC_j}$
+3. **Cross-lag dirigido**: el lag óptimo $\ell^*_{ij}$ indica dirección ($\ell > 0$: $i$ lidera $j$)
 
-$$c_i(t) = \int_0^t \text{FCF\_yield}_i(\tau) - \pi(\tau) \, d\tau$$
+El Laplaciano dirigido tiene **eigenvalores complejos**: $\lambda_k = a_k + ib_k$
 
-O equivalentemente, el capital real acumulado:
+- $a_k > 0$: el modo se amortigua (difusión)
+- $b_k \neq 0$: el modo **oscila** (rotación de capital entre sectores)
+- La parte imaginaria captura **ciclos**: tech→bonds→commodities→tech
 
-$$\Delta c_i(t) = \frac{\text{FCF}_i}{P_i} - \text{inflación} + \frac{(\text{ROIC}_i - \text{WACC}_i)}{252}$$
+### 10.4 Medición de los campos
+
+#### Campo u(t) — implementado
+$$u_i(t) = \sum_{\tau=1}^{t} \left[ r_i(\tau) - \pi(\tau) \right] \quad \text{(retorno real acumulado)}$$
+
+#### Campo c(t) — implementado
+$$\Delta c_i(t) = 0.40 \cdot \frac{\text{FCF}_i - 0.5\cdot\text{SBC}_i}{MC_i} + 0.25 \cdot \max(0, \text{ROIC}_i - \text{WACC}) + 0.20 \cdot (g_{\text{rev}} - \pi) + 0.15 \cdot \text{buyback\_yield}_i$$
+
+Actualización trimestral, interpolado linealmente con decay de confianza.
+
+#### Campo λ(t) — por implementar
+$$\lambda_i(t) = \frac{u_i(t)}{c_i(t)} \quad \text{cuando } c_i(t) \neq 0$$
+
+O equivalentemente, de los múltiplos:
+$$\lambda_i(t) \approx \frac{PE_i(t)}{PE_{sector,median}}$$
+
+### 10.5 Reescalado empírico de $\lambda$
+
+Para cuadrar unidades entre $u$ y $c$, se usa el **valor esperado histórico** de la interacción:
+
+$$\lambda^*_i = \frac{\langle u_i \cdot c_i \rangle}{\langle c_i^2 \rangle} \quad \text{(regresión OLS)}$$
+
+**Condicionado por régimen**: $\lambda$ se calibra separadamente en cada tipo de mercado:
+
+$$\lambda^*_i(s) = \frac{\langle u_i \cdot c_i \rangle_{R(s)}}{\langle c_i^2 \rangle_{R(s)}}$$
+
+donde $R(s)$ selecciona los días pertenecientes al régimen identificado por $s(t)$:
+
+| Régimen $R$ | Condición | Ciclos históricos |
+|---|---|---|
+| **Crisis** | $s < 0.40$ | 2008, COVID mar-2020, SVB 2023 |
+| **Stress** | $0.40 \leq s < 0.65$ | 2011 EU crisis, 2018 Q4, 2022 rate hikes |
+| **Normal** | $0.65 \leq s < 0.85$ | 2006-2007, 2013-2014, 2017, 2025 |
+| **Calma/Hype** | $s \geq 0.85$ | Dotcom 1999, post-QE 2013, AI 2023-2024 |
+
+### 10.6 El mispricing con λ corregido
+
+$$\delta_i(t) = u_i(t) - \lambda^*_i(s(t)) \cdot c_i(t)$$
+
+- $\delta > 0$: precio por encima del múltiplo esperado PARA ESTE RÉGIMEN → sobrevaluado
+- $\delta < 0$: precio por debajo → infravalorado
+- La clave: durante hype ($s$ alto), $\lambda^*$ es alto → se tolera más "sobrevaloración"
 
 ---
 
-## 11. Roadmap de Mejoras
+## 11. Parámetros a Calibrar Históricamente
 
-| Prioridad | Mejora | Impacto esperado | Implementación |
+### 11.1 Lista completa de parámetros
+
+| Parámetro | Ecuación | Calibración | Datos necesarios |
 |---|---|---|---|
-| 🔴 Alta | Campo dual $u/c$ | Señal de mispricing real | Nueva ecuación acoplada |
-| 🟡 Media | W multicapa (sustitución + supply chain) | Grafo más limpio | Datos de supply chain |
-| 🟡 Media | Calibración ADV_WEIGHT óptima | Mejorar C2/C3 | Grid search con OOS |
-| 🟢 Baja | Options data (skew, term structure) | Forward-looking volatility | API de opciones |
-| 🟢 Baja | Flujos institucionales | Smart money tracking | 13F filings data |
+| $\alpha$ | Difusión de u | OOS minimization (ya implementado) | Precios 20y |
+| $s(t)$ | Fracionalidad del Laplaciano | Z-scores de macro (implementado) | VIX, DXY, spreads |
+| $\kappa$ | Acoplamiento u↔λc | Regresión $\Delta u$ vs $(\lambda c - u)$ | Fundamentals + precios |
+| $\lambda^*_i(R)$ | Múltiplo por activo y régimen | OLS condicionado (Sec 10.5) | 20y precios + fundamentals |
+| $\alpha_\lambda$ | Difusión de múltiplos | Autocorrelación de PE ratios sectoriales | 20y PE ratios |
+| $\eta$ | Sensibilidad de λ a earnings | Event study en earnings surprises | Earnings calendar |
+| $\xi$ | Reflexividad (momentum→λ) | Regresión $\Delta \lambda$ vs $\nabla u$ | 20y precios |
+| $\beta_{ij}$ | Sensibilidad macro | Rolling regression 120d (implementado) | 20y precios + macro |
+| $\tilde{W}$ | Grafo dirigido para λ | Causalidad de Granger + capitalización | 20y retornos |
+
+### 11.2 Estrategia de calibración
+
+```mermaid
+graph TD
+    A[20 años de datos] -->|Precios + macro| B[Clasificar regímenes R_s]
+    A -->|Fundamentals| C[Construir c_t por activo]
+    B --> D[Calibrar λ* por activo y régimen]
+    C --> D
+    D --> E[Calcular δ = u - λ*c histórico]
+    E -->|"Backtest: ¿δ predice retornos?"| F{Hit rate > 55%?}
+    F -->|Sí| G[Calibrar κ, α_λ, η, ξ]
+    F -->|No| H[Revisar medición de c_t]
+    G --> I[Backtest completo con 3 campos]
+    I --> J[Walk-forward validation 2020-2026]
 ```
+
+**Walk-forward**: calibrar en 2005-2019, testear en 2020-2026 (out-of-sample incluye COVID, AI hype, rate hikes).
+
+### 11.3 Riesgo de sobreajuste
+
+Con 9+ parámetros y 20 años de datos:
+- **Grados de libertad**: ~5,000 días × 100 activos = 500,000 observaciones → suficiente
+- **Pero**: los regímenes son pocos (3-4 crisis, 2-3 hype periods) → los parámetros condicionados por régimen tienen N pequeño
+- **Mitigación**: regularización (ya en α), cross-validation temporal, penalizar complejidad (BIC/AIC)
+
+---
+
+## 12. Roadmap de Implementación
+
+| Prioridad | Tarea | Dependencia | Estado |
+|---|---|---|---|
+| 🔴 1 | Cargar 20y de datos (precios + macro + fundamentals) | Ninguna | En progreso |
+| � 2 | Calibrar $\lambda^*(R)$ por régimen con OLS | Datos 20y | Pendiente |
+| 🔴 3 | Backtest δ vs retornos futuros (5d, 20d) | λ calibrado | Pendiente |
+| 🟡 4 | Implementar $\kappa$ acoplamiento en heat_engine | Backtest δ positivo | Pendiente |
+| 🟡 5 | Grafo dirigido $\tilde{W}$ con Granger causality | Datos 20y | Pendiente |
+| 🟡 6 | Calibrar $\alpha_\lambda$, $\eta$, $\xi$ | Grafo dirigido | Pendiente |
+| 🟢 7 | Walk-forward 2020-2026 | Todo calibrado | Pendiente |
+| 🟢 8 | Eigenvalores complejos → ciclos sectoriales | Grafo dirigido | Investigación |
+
 
