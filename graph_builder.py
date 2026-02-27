@@ -99,6 +99,11 @@ class GraphBuilder:
     def load_data(self, start_date: str = None, end_date: str = None):
         """Carga precios y macro desde Supabase."""
 
+        # Default: 2 years of data (more than enough for 120d windows)
+        if start_date is None:
+            from datetime import datetime, timedelta
+            start_date = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
+
         # --- Assets ---
         assets_resp = self.db.client.table("assets").select(
             "ticker, currency"

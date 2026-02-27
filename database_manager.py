@@ -107,27 +107,47 @@ class DatabaseManager:
                    end_date: str = None, limit: int = None) -> pd.DataFrame:
         """
         Devuelve precios históricos de un ticker como DataFrame.
-        Ordenado por fecha ascendente (más antiguo primero).
+        Paginación automática para superar el límite de 1000 rows de Supabase.
         """
-        query = (self.client.table("prices")
-                 .select("*")
-                 .eq("ticker", ticker))
+        all_data = []
+        page_size = 1000
+        offset = 0
+        max_pages = 50  # seguridad: máx 50,000 rows por ticker
 
-        if start_date:
-            query = query.gte("date", start_date)
-        if end_date:
-            query = query.lte("date", end_date)
+        for _ in range(max_pages):
+            query = (self.client.table("prices")
+                     .select("*")
+                     .eq("ticker", ticker))
 
-        query = query.order("date", desc=False)
+            if start_date:
+                query = query.gte("date", start_date)
+            if end_date:
+                query = query.lte("date", end_date)
 
-        if limit:
-            query = query.limit(limit)
+            query = query.order("date", desc=False)
+            query = query.range(offset, offset + page_size - 1)
 
-        res = query.execute()
-        df = pd.DataFrame(res.data)
+            res = query.execute()
+            if not res.data:
+                break
+
+            all_data.extend(res.data)
+            offset += page_size
+
+            # Si devolvió menos que page_size, hemos llegado al final
+            if len(res.data) < page_size:
+                break
+
+            # Si se especificó limit y lo alcanzamos
+            if limit and len(all_data) >= limit:
+                all_data = all_data[:limit]
+                break
+
+        df = pd.DataFrame(all_data)
         if not df.empty:
             df["date"] = pd.to_datetime(df["date"])
             df = df.set_index("date")
+            df = df.sort_index()
         return df
 
     def get_prices_multi(self, tickers: list[str], start_date: str = None,
