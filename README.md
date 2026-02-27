@@ -104,3 +104,25 @@ python tests/historical_tests.py
 
 - [MATHEMATICS.md](docs/MATHEMATICS.md) — Complete mathematical formulation
 - [DIARY.md](docs/DIARY.md) — Development log
+
+## Roadmap
+
+### Next: Dimensional Corrections Ω(t)
+
+The equation already has f(t) per role. Missing: the **dimensional corrections** that link the 3 external fields to every node:
+
+```
+Ω_i(t) = dc/dt · m_i           (currency depreciation → real value drops)
+        - D/GDP · η · m_i       (sovereign debt → tax drag on all nodes)
+        - β_r · dr_FED/dt · m_i  (rate hikes → systemic contraction)
+```
+
+> ⚠️ **Known gap**: Banks profit from rate hikes (NIM widens), but the current β_r term
+> contracts everyone equally. Ω needs a role-dependent β_r: negative for banks
+> (they benefit), positive for companies (they suffer). This asymmetry is the
+> core of monetary transmission and must be implemented carefully.
+
+### Later
+- **Bayesian adaptation**: Kalman filter to correct f(t) based on prediction errors
+- **Parameter optimization**: grid search over α, γ, η with financial loss (Sharpe ratio)
+- **Backtest**: hierarchical directed graph vs flat undirected graph
