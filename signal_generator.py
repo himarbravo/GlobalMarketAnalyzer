@@ -165,9 +165,12 @@ class SignalGenerator:
             if ts_std > 1e-8:
                 trend_scores = trend_scores / ts_std
 
-        # Mispricing δ(t) = u(t) - c(t) — capital field
+        # Water-landscape: δ = λ - λ_eq (valuation vs regime equilibrium)
         mispricing = getattr(self.engine, 'mispricing', np.zeros((1, self.gb.N)))
-        capital_field = getattr(self.engine, 'capital_field', None)
+        landscape_quality = getattr(self.engine, '_landscape_quality', 'neutral')
+        current_regime = getattr(self.engine, 'current_regime', 'normal')
+        lambda_eq = getattr(self.engine, 'lambda_eq', 18.0)
+        lambda_contagion = getattr(self.engine, 'lambda_contagion', np.zeros(self.gb.N))
 
         for i, ticker in enumerate(self.gb.tickers):
             score = asset_scores.get(ticker, 0.0)
@@ -175,62 +178,70 @@ class SignalGenerator:
             F = self.ff.scores.get(ticker, 0.0)
             classification = self.ff.classifications.get(ticker, "neutral")
 
-            # Precio actual
+            # Current price
             price = float(self.gb.prices[ticker].iloc[-1]) \
                 if ticker in self.gb.prices.columns else None
 
-            # Probabilidad O-U analítica
+            # O-U probability
             prob = self.engine.compute_probability(i)
             p_rev = prob["p_reversion"]
             exp_ret = prob["expected_return"]
             half_life = prob["half_life_days"]
 
-            # Señales separadas
-            revert_score = score        # z-score + inertia (mean-reversion)
-            trend_score = trend_scores[i]  # momentum de modos lentos
+            # Component signals
+            revert_score = score
+            trend_score = trend_scores[i]
 
-            # Mispricing score: δ < 0 → infravalorado → señal de compra
+            # δ = λ - λ_eq: positive → overvalued, negative → undervalued
             delta_i = float(mispricing[-1, i]) if len(mispricing) > 0 else 0.0
-            cap_quality = capital_field.quality_flag.get(ticker, "neutral") if capital_field else "neutral"
 
-            # Combined score: 4 componentes
-            # revert (z-score) + trend (momentum) + mispricing (δ) + fundamental (F)
+            # v/K: money flow per unit of capital (stronger signal)
+            v_last = float(self.engine.macro_velocity[-1, i]) \
+                if len(self.engine.macro_velocity) > 0 else 0.0
+
+            # Combined score: 4 components
             s = self.gb.s
-            w_revert = 0.30 + 0.15 * s     # calm: 0.45, stress: 0.35
-            w_trend  = 0.20 + 0.10 * (1-s)  # calm: 0.20, stress: 0.30
-            w_delta  = 0.25 if cap_quality == "real" else 0.10  # peso alto solo si datos fiables
+            w_revert = 0.30 + 0.15 * s
+            w_trend  = 0.20 + 0.10 * (1-s)
+            w_delta  = 0.25 if landscape_quality == "real" else 0.10
             w_fund   = 1.0 - w_revert - w_trend - w_delta
             composite = (w_revert * revert_score +
                          w_trend * trend_score -
-                         w_delta * delta_i +     # δ negativo = infravalorado = comprar
-                         w_fund * F * 5)          # F escalado
+                         w_delta * delta_i +     # δ<0 (undervalued) → positive signal
+                         w_fund * F * 5)
 
-            # Dirección del trend
+            # Strong signal: undervalued + money arriving
+            money_at_value = (delta_i < -0.5 and v_last > 0)
+
+            # Direction
             trend_up = trend_score > 0.5
             trend_down = trend_score < -0.5
             asset_cold = z < -1.0
             asset_hot = z > 1.0
 
-            # Determinar señal: trend+revert alignment
+            # Determine signal
             if composite < BUY_THRESHOLD and p_rev > PROB_MIN and F >= -0.05:
                 if asset_cold and trend_up:
-                    signal = "BUY"  # Cold + uptrend = strong buy
-                    confidence = round(p_rev * 120, 1)  # boost
+                    signal = "BUY"
+                    confidence = round(p_rev * 120, 1)
                 elif asset_cold and not trend_down:
-                    signal = "BUY"  # Cold + neutral trend = buy
+                    signal = "BUY"
                     confidence = round(p_rev * 100, 1)
+                elif money_at_value:
+                    signal = "BUY"   # Landscape: undervalued + money incoming
+                    confidence = round(p_rev * 110, 1)
                 else:
-                    signal = "WATCH"  # Cold but downtrend = don't fight
+                    signal = "WATCH"
                     confidence = round(p_rev * 70, 1)
             elif composite > SELL_THRESHOLD and p_rev > PROB_MIN and F <= 0.05:
                 if asset_hot and trend_down:
-                    signal = "SELL"  # Hot + downtrend = strong sell
+                    signal = "SELL"
                     confidence = round(p_rev * 120, 1)
                 elif asset_hot and not trend_up:
-                    signal = "SELL"  # Hot + neutral trend = sell
+                    signal = "SELL"
                     confidence = round(p_rev * 100, 1)
                 else:
-                    signal = "WATCH"  # Hot but uptrend = don't fight
+                    signal = "WATCH"
                     confidence = round(p_rev * 70, 1)
             elif abs(composite) > WATCH_THRESHOLD:
                 signal = "WATCH"
@@ -239,7 +250,7 @@ class SignalGenerator:
                 signal = "HOLD"
                 confidence = round((1 - p_rev) * 100, 1)
 
-            # En crisis (s bajo), reducir confianza
+            # In crisis (low s), reduce confidence
             if signal != "HOLD":
                 confidence = round(confidence * s, 1)
 
@@ -249,15 +260,16 @@ class SignalGenerator:
                 "signal":             signal,
                 "confidence":         confidence,
                 "price":              price,
-                "strategy":           "OU_hybrid_trend_revert",
-                "regime":             self._classify_regime(),
+                "strategy":           "water_landscape_v1",
+                "regime":             current_regime,
                 "technical_score":    round(float(composite), 3),
                 "fundamental_score":  round(float(F * 100), 3),
                 "macro_score":        round(float(s * 100), 1),
                 "trend_score":        round(float(trend_score), 3),
                 "revert_score":       round(float(revert_score), 3),
                 "mispricing_score":   round(float(delta_i), 3),
-                "capital_quality":    cap_quality,
+                "lambda_eq":          round(float(lambda_eq), 1),
+                "landscape_quality":  landscape_quality,
                 "p_reversion":        p_rev,
                 "expected_return_5d": exp_ret,
                 "half_life_days":     half_life,

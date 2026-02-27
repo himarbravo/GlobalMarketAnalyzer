@@ -143,23 +143,24 @@ class HeatEngine:
 
     def solve(self, calibrate: bool = True):
         """
-        Resuelve advección-difusión híbrida:
+        Solve the water-landscape model:
 
-        du/dt = -α·L^s·u + v(t) + f(t)
+        dm/dt = -α·L^s·m + v(t) + QE(t)    (money = fluid on graph)
+        dK/dt = g(t)                        (capital = terrain, local)
+        λ = m / K                           (valuation multiple, derived)
+        u = λ · K = m                       (price = money assigned)
 
-        Modos TREND (λ < threshold):
-          u_k(t+1) = u_k(t) + β_k · Δu_k(t)  (momentum)
-
-        Modos REVERT (λ >= threshold):
-          u_k(t+1) = u_k(t) · e^{-μ_k} + f_k/μ_k · (1 - e^{-μ_k})
-
-        + Advección: v(t) empuja u según flujos macro de capital
+        Spectral decomposition of the money equation:
+          Revert modes: m_k(t+1) = m_k(t)·e^{-μ} + f_k/μ·(1-e^{-μ})
+          Trend modes:  m_k(t+1) = m_k(t) + β_k·Δm_k (momentum)
+          + advection v(t) pushes money per macro flows
         """
-        u = self.gb.u.astype(np.float64)  # (T, N)
-        u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
-        T_len = len(u)
+        # m(t) = money field ≡ u(t) (cumulative real returns = money assigned)
+        m = self.gb.u.astype(np.float64)  # (T, N)
+        m = np.nan_to_num(m, nan=0.0, posinf=0.0, neginf=0.0)
+        T_len = len(m)
         if T_len < 2:
-            raise ValueError("Datos insuficientes para resolver O-U")
+            raise ValueError("Datos insuficientes para resolver")
 
         if calibrate:
             self.calibrate_alpha()
@@ -170,78 +171,75 @@ class HeatEngine:
         f_vec = np.nan_to_num(self.ff.get_source_vector(self.tickers))
         f_k = Phi.T @ f_vec
 
-        # Calcular velocidad macro v(t) — ANTES de resolver
+        # Macro velocity v(t) — direction of money flows
         self._compute_macro_velocity(T_len)
 
-        # Proyectar temperaturas reales al espacio espectral
-        u_k_real = u @ Phi  # (T, N)
+        # Project money to spectral space
+        m_k_real = m @ Phi  # (T, N)
 
-        # Propagar one-step-ahead por modo
-        u_k_pred = np.zeros_like(u_k_real)
-        u_k_pred[0] = u_k_real[0]  # condición inicial
+        # Solve one-step-ahead per mode
+        m_k_pred = np.zeros_like(m_k_real)
+        m_k_pred[0] = m_k_real[0]
 
-        # --- Modos REVERT: O-U clásico ---
+        # --- Revert modes: O-U on money ---
         alpha_vec = np.full(self.N, self.alpha)
         alpha_vec[:min(self.N, 30)] = self.alpha_per_mode[:min(self.N, 30)]
-        mu = alpha_vec * lam_s  # (N,)
+        mu = alpha_vec * lam_s
         decay = np.where(mu > 1e-10, np.exp(-mu), 1.0)
         eq_term = np.where(mu > 1e-10, f_k / np.maximum(mu, 1e-10) * (1 - decay), f_k)
 
-        # --- Modos TREND: momentum ---
+        # --- Trend modes: momentum ---
         is_trend = np.array([mt == 'trend' for mt in self.mode_type])
         n_trend = int(np.sum(is_trend))
 
-        # Proyectar v(t) al espacio espectral para sumar al solver
-        v_spectral = self.macro_velocity @ Phi if len(self.macro_velocity) > 0 else np.zeros_like(u_k_real)
+        # Project v(t) to spectral space
+        v_spectral = self.macro_velocity @ Phi if len(self.macro_velocity) > 0 \
+            else np.zeros_like(m_k_real)
 
-        # Peso de advección (calibrar: demasiado alto → ruido, muy bajo → no efecto)
-        ADV_WEIGHT = 0.05  # conservador: solo 5% del push macro
+        ADV_WEIGHT = 0.05
 
         for t in range(T_len - 1):
-            # Revert modes: O-U + advección
-            u_k_pred[t + 1] = u_k_real[t] * decay + eq_term
-
-            # Sumar advección (el empuje del capital macro)
+            # Revert: O-U + advection on money
+            m_k_pred[t + 1] = m_k_real[t] * decay + eq_term
             if t < len(v_spectral):
-                u_k_pred[t + 1] += ADV_WEIGHT * v_spectral[t]
+                m_k_pred[t + 1] += ADV_WEIGHT * v_spectral[t]
 
-            # Trend modes: momentum extrapolation
+            # Trend: momentum + advection
             if n_trend > 0 and t >= MOMENTUM_WIN:
                 for k in range(self.N):
                     if not is_trend[k]:
                         continue
-                    deltas = np.diff(u_k_real[max(0, t-MOMENTUM_WIN):t+1, k])
+                    deltas = np.diff(m_k_real[max(0, t-MOMENTUM_WIN):t+1, k])
                     if len(deltas) > 0:
                         beta_k = np.mean(deltas)
-                        u_k_pred[t + 1, k] = u_k_real[t, k] + beta_k
-                        # Trend modes también reciben advección
+                        m_k_pred[t + 1, k] = m_k_real[t, k] + beta_k
                         if t < len(v_spectral):
-                            u_k_pred[t + 1, k] += ADV_WEIGHT * v_spectral[t, k]
+                            m_k_pred[t + 1, k] += ADV_WEIGHT * v_spectral[t, k]
 
-        # Residuos espectrales
-        self.spectral_res = u_k_real - u_k_pred  # (T, N)
+        # Spectral residuals
+        self.spectral_res = m_k_real - m_k_pred
 
-        # Guardar info para señales
+        # Mode info for signals
         self.is_trend_mode = is_trend
         self.n_trend_modes = n_trend
         self.n_revert_modes = self.N - n_trend
 
-        # Reconstruir en espacio real
-        self.u_real = u
-        self.u_pred = u_k_pred @ Phi.T  # (T, N)
+        # Reconstruct in real space
+        self.u_real = m  # m(t) = money = price (they're the same thing)
+        self.u_pred = m_k_pred @ Phi.T
         self.residuals = self.u_real - self.u_pred
 
-        # Sigma por activo (para probabilidades)
-        self.sigma_residual = np.nanstd(self.residuals, axis=0)  # (N,)
+        # Sigma per asset
+        self.sigma_residual = np.nanstd(self.residuals, axis=0)
 
-        # Z-scores (normalizar por volatilidad rolling)
+        # Z-scores
         self._compute_z_scores()
 
         # Refuge signal
         self._compute_refuge_signal()
 
-        # Campo dual: c(t) y mispricing δ(t) = u(t) - c(t)
-        self._compute_mispricing()
+        # === WATER-LANDSCAPE: build K(t) terrain and compute λ = m/K ===
+        self._compute_landscape()
 
     def _compute_macro_velocity(self, T_len: int):
         """
@@ -370,24 +368,114 @@ class HeatEngine:
         # Modular por stress: si s bajo (crisis), signal es más creíble
         self.refuge_signal *= (1 + (1 - gb.s))
 
-    def _compute_mispricing(self):
+    def _compute_landscape(self):
         """
-        Construye c(t) y calcula δ(t) = u(t) - c(t).
+        Water-landscape model:
+          K(t) = terrain (capital real, from capital_field)
+          λ = m/K = valuation multiple (derived)
+          δ = λ - λ_eq(regime) = mispricing signal
 
-        δ > 0 → precio por encima del capital real → sobrevalorado
-        δ < 0 → precio por debajo del capital real → infravalorado
+        Also computes L_K: capital-weighted Laplacian for λ contagion.
+        Big-K companies drag neighbors' λ toward theirs.
         """
+        import json
+        from pathlib import Path
+
+        T, N = self.u_real.shape
+
         try:
             from capital_field import CapitalField
             cf = CapitalField(self.ff.db)
             dates = self.gb.returns.index
             cf.build(self.tickers, dates)
             self.capital_field = cf
-            self.mispricing = cf.compute_mispricing(self.u_real, self.tickers)
+
+            # K(t) = terrain — accumulated real capital per asset
+            K = cf.c_daily.values if hasattr(cf, 'c_daily') else None
         except Exception as e:
-            # Si falla, mispricing = 0 (no contribuye a señales)
-            self.mispricing = np.zeros_like(self.u_real)
-            print(f"    ⚠ Mispricing c(t) no disponible: {e}")
+            K = None
+            self.capital_field = None
+            print(f"    ⚠ Capital field K(t) no disponible: {e}")
+
+        # --- Load regime-calibrated λ_eq ---
+        regime_params = {}
+        cal_path = Path(__file__).parent / "calibration_results.json"
+        if cal_path.exists():
+            try:
+                with open(cal_path) as f:
+                    cal_data = json.load(f)
+                regime_params = cal_data.get("regime_params", {})
+            except Exception:
+                pass
+
+        # --- Classify current regime from s(t) ---
+        s = self.gb.s
+        if s < 0.40:
+            current_regime = "crisis"
+        elif s < 0.65:
+            current_regime = "stress"
+        elif s < 0.85:
+            current_regime = "normal"
+        else:
+            current_regime = "hype"
+
+        # λ_eq for current regime (fallback: 18 = typical PE)
+        lambda_eq = regime_params.get(current_regime, {}).get("lambda_eq", 18.0)
+
+        # --- Compute λ = m/K and δ = λ - λ_eq ---
+        if K is not None and K.shape == self.u_real.shape:
+            # Avoid division by zero: where K ≈ 0, set λ to neutral
+            K_safe = np.where(np.abs(K) > 1e-6, K, np.nan)
+            lambda_field = self.u_real / K_safe  # (T, N)
+            lambda_field = np.nan_to_num(lambda_field, nan=lambda_eq)
+
+            # δ(t) = λ(t) - λ_eq(regime)
+            # Positive δ → overvalued for this regime
+            # Negative δ → undervalued
+            delta = lambda_field - lambda_eq
+
+            # Z-normalize δ per asset for signal compatibility
+            delta_std = np.nanstd(delta, axis=0)
+            delta_std = np.where(delta_std > 1e-8, delta_std, 1.0)
+            self.mispricing = delta / delta_std
+
+            # --- L_K: capital-weighted Laplacian for contagion ---
+            # [L_K·λ]_i = (1/K_i) * Σ_j L_ij * K_j * λ_j
+            # Big-K firms drag neighbors' λ toward theirs
+            K_last = K[-1]  # use latest K for weighting
+            K_abs = np.abs(K_last) + 1e-8
+            L = np.diag(np.sum(self.gb.W, axis=1)) - self.gb.W
+            L_K = (L * K_abs[np.newaxis, :]) / K_abs[:, np.newaxis]
+            self.L_K = L_K
+
+            # λ contagion signal: how much λ_i differs from K-weighted neighbors
+            lambda_last = lambda_field[-1] if len(lambda_field) > 0 else np.full(N, lambda_eq)
+            self.lambda_contagion = L_K @ (lambda_last - lambda_eq)
+
+            # Store for signal_generator
+            self.lambda_field = lambda_field
+            self.lambda_eq = lambda_eq
+            self.current_regime = current_regime
+
+            quality_flag = "real"
+        else:
+            # Fallback: no K data → mispricing = 0 (neutral)
+            self.mispricing = np.zeros((T, N))
+            self.lambda_field = np.full((T, N), lambda_eq)
+            self.lambda_contagion = np.zeros(N)
+            self.lambda_eq = lambda_eq
+            self.current_regime = current_regime
+            self.L_K = np.eye(N)
+            quality_flag = "neutral"
+
+        # Store quality for signal weighting
+        if not hasattr(self, 'capital_field') or self.capital_field is None:
+            self._landscape_quality = "neutral"
+        else:
+            self._landscape_quality = quality_flag
+
+        print(f"    Régimen: {current_regime} | λ_eq = {lambda_eq:.1f} | "
+              f"Landscape: {quality_flag}")
 
     def _compute_z_scores(self):
         """z[i,t] = ε[i,t] / σ_ε[i, rolling]"""
