@@ -1,77 +1,106 @@
 # GlobalMarketAnalyzer
 
-Water-landscape model on a fractional graph for market analysis.
+Water-landscape model on a fractional graph with inertia, hierarchical monetary transmission, and dimensional fields.
 
 ## The Model
 
-Three fundamental quantities, two equations, everything else derived:
+Three fundamental quantities, two equations, everything derived:
 
 ```
 MONEY (m) ── the water that flows between investors on the graph
-  dm/dt = -α·L^s·m + v(t) + QE
+  γ·d²m/dt² + dm/dt = -α·L^s·m + v(t) + f(t) + Ω(t)
 
 CAPITAL (K) ── the terrain, fixed at each company, changes slowly
-  dK/dt = g(t)  (CAPEX, R&D, depreciation, earnings)
+  dK/dt = g(t)  (CAPEX, R&D, depreciation, earnings, debt)
 
 PRICE (u) = λ·K = m ── the observable
-  λ = m/K ── valuation multiple (derived, not independent)
-
-L^s ── fractional Laplacian: s=1 local diffusion, s→0 global panic
-L_K ── capital-weighted Laplacian: big companies drag neighbors' λ
-v(t) ── macro velocity: where money flows (QE, rate hikes, rotation)
+  λ = m/K ── valuation multiple (derived)
 ```
 
+### Inertia (γ)
+The equation is **2nd order**: money has mass. γ=1 → classic O-U (no momentum), γ>1 → trends persist. γ is auto-calibrated via out-of-sample grid search.
+
+### Hierarchical Graph
+
+```
+╔══════════════════════════════════════════════════════╗
+║  DIMENSIONS (fields, modulate all nodes of a country) ║
+║                                                       ║
+║  Dim 1: Currency c(t)     DXY, EURUSD, USDJPY        ║
+║  Dim 2: Sovereign Debt    Debt/GDP ratio per country  ║
+║  Dim 3: Fed Rate r(t)     Central bank interest rate  ║
+║                                                       ║
+║  → Ω(t) = dc/dt·m - D/GDP·η·m - βr·dr/dt·m          ║
+╠══════════════════════════════════════════════════════╣
+║  DIRECTED GRAPH (2 levels, money creation channel)    ║
+║                                                       ║
+║  Banks →(lending)→ Companies                          ║
+║  Companies →(interest)→ Banks                         ║
+║                                                       ║
+║  Intra-level: ←→ correlation (undirected, as before)  ║
+╚══════════════════════════════════════════════════════╝
+```
+
+### Source Term f(t) — per role
+
+| Role | f(t) | Meaning |
+|---|---|---|
+| `bank` | NIM × lending volume | Banks create money via loans |
+| `productive` | (dK/dt + credit - debt·r) × S(t) | Capital creation + loans - interest, × sentiment |
+
 **Signal**: δ = λ - λ_eq(regime). Overvalued if δ > 0, undervalued if δ < 0.
-Strong buy: δ < 0 AND v > 0 (undervalued + money arriving).
 
 ## Architecture
 
 ```
-┌─────────────────────────── PIPELINE ──────────────────────────────┐
-│                                                                    │
-│  config.py             Constants and global parameters             │
-│  database_manager.py   Supabase connection and queries             │
-│  data_ingestion.py     Price, macro, fundamental data loading      │
-│  schema.sql            Supabase table definitions                  │
-│                                                                    │
-│  ┌──── CORE MODEL ────────────────────────────────────────────┐   │
-│  │  graph_builder.py       Multi-layer graph with cross-lag   │   │
-│  │                         3 scales (20/60/120d) + W²,W³      │   │
-│  │  fundamental_filter.py  Fundamental scores (F)             │   │
-│  │  capital_field.py       K(t) terrain from earnings data     │   │
-│  │  heat_engine.py         Money equation solver + landscape   │   │
-│  │  inertia_detector.py    Phase space, mass, rotation         │   │
-│  │  perturbation_simulator.py  Shock propagation               │   │
-│  └────────────────────────────────────────────────────────────┘   │
-│                                                                    │
-│  signal_generator.py   Pipeline: data → graph → solve → signals   │
-│  regime_calibrator.py  Historical calibration (7 market periods)   │
-│                                                                    │
-│  ┌──── DIAGNOSTICS ───────────────────────────────────────────┐   │
-│  │  model_diagnostic.py    Tests 1-6 (tracking, prediction)    │   │
-│  │  model_diagnostic_v2.py Tests 7-11 (non-locality, events)   │   │
-│  │  historical_tests.py    Walk-forward backtests              │   │
-│  └────────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────────────┘
+┌──────────────────────── PIPELINE ──────────────────────────────┐
+│                                                                 │
+│  config.py              Constants, node roles, dimensions       │
+│  db/database_manager.py Supabase connection and queries         │
+│  db/data_ingestion.py   Price, macro, fundamental data loading  │
+│  db/fred_client.py      FRED API (CPI, yields, credit spread)  │
+│  db/schema.sql          Supabase table definitions              │
+│                                                                 │
+│  ┌──── CORE MODEL ─────────────────────────────────────────┐   │
+│  │  graph_builder.py       Multi-layer graph + directed     │   │
+│  │                         edges (banks↔companies)          │   │
+│  │                         + dimension loading              │   │
+│  │  fundamental_filter.py  Fundamental scores → S(t)        │   │
+│  │  capital_field.py       K(t) terrain from earnings       │   │
+│  │  heat_engine.py         2nd-order money equation solver  │   │
+│  │                         with inertia (γ) + dimensions    │   │
+│  │  inertia_detector.py    Phase space, mass, rotation      │   │
+│  │  perturbation_simulator.py  Shock propagation            │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  core/signal_generator.py   data → graph → solve → signals     │
+│  core/regime_calibrator.py  Historical calibration              │
+│                                                                 │
+│  ┌──── DIAGNOSTICS ────────────────────────────────────────┐   │
+│  │  tests/model_diagnostic.py    Tests 1-6                  │   │
+│  │  tests/model_diagnostic_v2.py Tests 7-11                 │   │
+│  │  tests/historical_tests.py    Walk-forward backtests     │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Execution
 
 ```bash
 # Daily signals
-python signal_generator.py
+python core/signal_generator.py
 
 # Basic diagnostics
-python model_diagnostic.py
+python tests/model_diagnostic.py
 
 # Historical calibration by market regime
-python regime_calibrator.py
+python core/regime_calibrator.py
 
 # Full walk-forward tests
-python historical_tests.py
+python tests/historical_tests.py
 ```
 
 ## Documentation
 
-- [MATHEMATICS.md](MATHEMATICS.md) — Complete mathematical formulation
-- [DIARY.md](DIARY.md) — Development log
+- [MATHEMATICS.md](docs/MATHEMATICS.md) — Complete mathematical formulation
+- [DIARY.md](docs/DIARY.md) — Development log
