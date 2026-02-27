@@ -55,12 +55,17 @@ class CapitalField:
         Returns:
             DataFrame (T, N) con capital acumulado real por activo.
         """
+        # 0. Load real macro data: CPI and Treasury yields
+        real_inflation, real_risk_free = self._load_macro_params()
+        if real_inflation is not None:
+            inflation_annual = real_inflation  # Override proxy with real CPI YoY
+
         # 1. Cargar TODOS los registros fundamentals (históricos, no solo último)
         resp = self.db.client.table("fundamentals").select(
             "ticker, report_date, market_cap, free_cash_flow, "
             "operating_cash_flow, capex, roic, roe, roa, "
             "revenue_growth, earnings_growth, buyback_yield, "
-            "shares_outstanding, debt_to_equity"
+            "shares_outstanding, debt_to_equity, beta"
         ).order("report_date").execute()
 
         if not resp.data:
@@ -85,10 +90,22 @@ class CapitalField:
                 self.quality_flag[ticker] = "neutral"
                 continue
 
+            # Dynamic WACC per ticker: risk_free + β × equity_premium
+            last_row = tk_data.iloc[-1]
+            beta_val = last_row.get("beta")
+            if pd.notna(beta_val) and beta_val > 0:
+                beta = float(beta_val)
+            else:
+                beta = 1.0  # market average
+
+            risk_free = real_risk_free if real_risk_free is not None else 0.04
+            equity_premium = 0.05  # Damodaran long-term avg
+            wacc = risk_free + beta * equity_premium
+
             # Calcular Δc para cada trimestre
             quarterly_rates = []
             for _, row in tk_data.iterrows():
-                dc = self._compute_quarterly_delta_c(row, inflation_annual)
+                dc = self._compute_quarterly_delta_c(row, inflation_annual, wacc)
                 quarterly_rates.append({
                     "date": row["report_date"],
                     "delta_c": dc["delta_c"],
@@ -131,7 +148,37 @@ class CapitalField:
 
         self.c_daily = pd.DataFrame(c_matrix, index=price_dates, columns=tickers)
         self.confidence = pd.DataFrame(conf_matrix, index=price_dates, columns=tickers)
+
+        # Store params for reporting
+        self._inflation_used = inflation_annual
+        self._risk_free_used = risk_free if real_risk_free is not None else WACC_PROXY
+        self._source = "FRED" if real_inflation is not None else "proxy"
+
         return self.c_daily
+
+    def _load_macro_params(self):
+        """Load real CPI and Treasury yields from macro_indicators."""
+        inflation = None
+        risk_free = None
+
+        try:
+            # CPI YoY — most recent value
+            r = self.db.client.table("macro_indicators").select(
+                "cpi_yoy"
+            ).not_.is_("cpi_yoy", "null").order("date", desc=True).limit(1).execute()
+            if r.data and r.data[0].get("cpi_yoy") is not None:
+                inflation = r.data[0]["cpi_yoy"] / 100.0  # Convert % to decimal
+
+            # Treasury 10Y yield — most recent
+            r2 = self.db.client.table("macro_indicators").select(
+                "yield_10y"
+            ).not_.is_("yield_10y", "null").order("date", desc=True).limit(1).execute()
+            if r2.data and r2.data[0].get("yield_10y") is not None:
+                risk_free = r2.data[0]["yield_10y"] / 100.0  # Convert % to decimal
+        except Exception:
+            pass
+
+        return inflation, risk_free
 
     def compute_mispricing(self, u: np.ndarray, tickers: list[str]) -> np.ndarray:
         """
@@ -168,11 +215,16 @@ class CapitalField:
         return delta_weighted
 
     def _compute_quarterly_delta_c(self, row: pd.Series,
-                                    inflation_annual: float) -> dict:
+                                    inflation_annual: float,
+                                    wacc: float = WACC_PROXY) -> dict:
         """
         Calcula la tasa trimestral de creación de capital real.
 
         Profesional-grade: 5 componentes netos con ajustes por calidad.
+        Args:
+            row: pandas Series with fundamental data
+            inflation_annual: real CPI YoY or proxy
+            wacc: dynamic WACC = risk_free + β × equity_premium
         """
         # Use pd.notna() throughout — Supabase NULL becomes pandas NaN,
         # and 'nan is not None' is True, which caused K=NaN for 34 tickers
@@ -217,14 +269,14 @@ class CapitalField:
 
         # ── 2. Economic value added (ROIC - WACC) ──
         if roic is not None:
-            eva = max(0, roic - WACC_PROXY)  # solo creación, no destrucción aquí
+            eva = max(0, roic - wacc)  # solo creación, no destrucción aquí
         elif roe is not None:
             # Ajustar ROE por apalancamiento: ROE inflado por deuda no es capital real
             leverage_adj = min(1.0, 1.0 / (1 + (d2e/100 if d2e else 0)))
-            eva = max(0, roe * leverage_adj - WACC_PROXY)
+            eva = max(0, roe * leverage_adj - wacc)
             confidence -= 0.1
         elif roa is not None:
-            eva = max(0, roa - WACC_PROXY)
+            eva = max(0, roa - wacc)
             confidence -= 0.15
         else:
             eva = 0.0

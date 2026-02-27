@@ -23,6 +23,10 @@ SUPABASE_DB_URL = (
     f"@aws-0-eu-west-1.pooler.supabase.com:6543/postgres"
 )
 
+# ─── FRED (Federal Reserve Economic Data) ─────────────────────────────────────
+FRED_API_KEY = os.getenv("FRED_API_KEY", "")
+
+
 
 # ─── UNIVERSO DE ACTIVOS ──────────────────────────────────────────────────────
 TICKERS = {
