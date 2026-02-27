@@ -75,6 +75,55 @@ ETF_TICKERS = set(
 )
 
 
+# ─── GRAFO JERÁRQUICO: ROLES + DIMENSIONES ──────────────────────────────────
+
+# Nodos bancarios: crean dinero vía préstamos (f_bank = NIM × lending)
+NODE_ROLES = {
+    "JPM": "bank", "BAC": "bank", "GS": "bank", "MS": "bank", "WFC": "bank",
+}
+# Todo ticker NO listado aquí → role = "productive"
+
+# País de cotización/exposición de cada ticker no-US
+TICKER_COUNTRY = {
+    "BABA": "CN", "FXI": "CN",
+    "SAP": "DE", "EWG": "DE",
+    "NVO": "DK",
+    "TSM": "TW", "EWT": "TW",
+    "EWJ": "JP",
+    "EWZ": "BR",
+    "EWU": "UK",
+    "EWC": "CA",
+    "INDA": "IN",
+    "ASML": "NL",
+}
+# Todo ticker NO listado aquí → country = "US"
+
+# Dim 1: Divisa por país → campo en macro_indicators
+COUNTRY_CURRENCY = {
+    "US": "dxy",       # Dollar Index
+    "JP": "usdjpy",    # USD/JPY (inverso: sube = yen débil)
+    "DE": "eurusd",    # EUR/USD
+    "NL": "eurusd",
+    "DK": "eurusd",    # proxy (corona pegada al EUR)
+    "UK": "gbpusd",    # GBP/USD
+    "CN": "dxy",       # proxy (yuan semi-controlado)
+    "TW": "dxy",       # proxy
+    "BR": "dxy",       # proxy
+    "IN": "dxy",       # proxy
+    "CA": "dxy",       # proxy (CAD correlaciona con USD)
+}
+
+# Dim 2: Deuda soberana / PIB (ratio, fuente: FMI 2024)
+SOVEREIGN_DEBT_GDP = {
+    "US": 1.20, "JP": 2.60, "DE": 0.65, "NL": 0.50,
+    "CN": 0.80, "TW": 0.30, "DK": 0.35, "UK": 1.00,
+    "BR": 0.75, "IN": 0.85, "CA": 0.65,
+}
+
+# Dim 3: Tipo de interés base → FRED series ID
+FED_RATE_SERIES = "FEDFUNDS"  # Federal Funds Effective Rate (mensual)
+
+
 def get_all_tickers() -> list:
     seen, result = set(), []
     for tickers in TICKERS.values():
@@ -98,6 +147,16 @@ def get_sector(ticker: str) -> str:
         if ticker in tickers:
             return sector
     return "UNKNOWN"
+
+
+def get_node_role(ticker: str) -> str:
+    """Rol del nodo en el grafo jerárquico: 'bank' o 'productive'."""
+    return NODE_ROLES.get(ticker, "productive")
+
+
+def get_country(ticker: str) -> str:
+    """País de exposición principal del ticker."""
+    return TICKER_COUNTRY.get(ticker, "US")
 
 
 # ─── INDICADORES TÉCNICOS ─────────────────────────────────────────────────────

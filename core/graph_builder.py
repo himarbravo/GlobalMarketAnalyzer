@@ -15,6 +15,7 @@ Pipeline:
 import numpy as np
 import pandas as pd
 from db.database_manager import DatabaseManager
+import config
 
 
 # ── Parámetros del grafo ──
@@ -73,6 +74,19 @@ class GraphBuilder:
         self.copper: pd.Series = pd.Series(dtype=float)            # Industrial health
         self.oil: pd.Series = pd.Series(dtype=float)               # Energy stress
 
+        # ── Grafo jerárquico ──
+        self.node_roles: list[str] = []    # 'bank' | 'productive' por nodo
+        self.node_countries: list[str] = []  # 'US', 'JP', etc. por nodo
+        self.bank_indices: list[int] = []    # índices de nodos bancarios
+        self.prod_indices: list[int] = []    # índices de nodos productivos
+
+        # Dimensiones (campos que modulan todos los nodos)
+        self.dimensions: dict = {
+            'currency': {},        # país → pd.Series de divisa c(t)
+            'fed_rate': pd.Series(dtype=float),  # r(t) tipo FED
+            'sovereign_debt': {},  # país → ratio deuda/PIB
+        }
+
         # Sectores dinámicos (cargados de assets table)
         self.sector_map: dict = {}   # ticker → sector
         self.sectors: dict = {}      # sector → [ticker list]
@@ -80,6 +94,7 @@ class GraphBuilder:
         # Grafo
         self.W: np.ndarray = np.array([])            # Adjacencia efectiva (N, N)
         self.W_direct: np.ndarray = np.array([])     # Adjacencia directa (1er vecino)
+        self.W_directed: np.ndarray = np.array([])   # Aristas dirigidas bank↔company (N, N)
         self.W_lag: np.ndarray = np.array([])         # Lag óptimo por par (N, N)
         self.W_scales: dict = {}                      # {20: W_20d, 60: W_60d, 120: W_120d}
         self.L: np.ndarray = np.array([])             # Laplaciano (N, N)
@@ -116,6 +131,12 @@ class GraphBuilder:
                       for a in assets_resp.data}
         self.tickers = sorted(asset_info.keys())
         self.N = len(self.tickers)
+
+        # ── Clasificar nodos por rol y país ──
+        self.node_roles = [config.get_node_role(t) for t in self.tickers]
+        self.node_countries = [config.get_country(t) for t in self.tickers]
+        self.bank_indices = [i for i, r in enumerate(self.node_roles) if r == 'bank']
+        self.prod_indices = [i for i, r in enumerate(self.node_roles) if r == 'productive']
 
         # --- Precios (close) ---
         self.prices = self.db.get_prices_multi(
@@ -178,6 +199,18 @@ class GraphBuilder:
             # Inflación diaria esperada (proxy: yield_2y / 252)
             self.inflation_daily = y2 / 252 / 100
 
+            # ── Dim 1: Divisas ──
+            for country, fx_col in config.COUNTRY_CURRENCY.items():
+                if fx_col in macro_df.columns:
+                    self.dimensions['currency'][country] = macro_df[fx_col].dropna()
+
+            # ── Dim 3: Fed Rate (si disponible en macro_indicators) ──
+            if 'fed_rate' in macro_df.columns:
+                self.dimensions['fed_rate'] = macro_df['fed_rate'].dropna()
+
+        # ── Dim 2: Deuda soberana (estático, de config) ──
+        self.dimensions['sovereign_debt'] = config.SOVEREIGN_DEBT_GDP.copy()
+
         # --- Sectores dinámicos desde assets table ---
         sector_resp = self.db.client.table("assets").select(
             "ticker, sector"
@@ -195,12 +228,87 @@ class GraphBuilder:
             hyg = self.db.get_prices("HYG", column="close")
             tlt = self.db.get_prices("TLT", column="close")
             if not hyg.empty and not tlt.empty:
-                # Ratio HYG/TLT: cae cuando hay tensión de crédito
                 ratio = hyg["close"] / tlt["close"].reindex(hyg.index).ffill()
-                # Retorno rolling 20d del ratio (negativo = tensión)
                 self.credit_spread = -ratio.pct_change(20).dropna()
         except Exception:
             pass
+
+    # ─────────────────────────────────────────────────────────────
+    # ARISTAS DIRIGIDAS: BANKS ↔ COMPANIES
+    # ─────────────────────────────────────────────────────────────
+
+    def _build_directed_edges(self):
+        """
+        Construye aristas dirigidas entre bancos y empresas productivas.
+
+        Descendente (bank → company): préstamos = inyección de dinero
+          w_down = bank_exposure × same_country_factor
+
+        Ascendente (company → bank): pago de intereses = drenaje
+          w_up = debt_ratio_company × cost_of_debt
+        """
+        self.W_directed = np.zeros((self.N, self.N))
+
+        if not self.bank_indices or not self.prod_indices:
+            return
+
+        # --- Proxy de tamaño/capacidad de cada banco ---
+        # Usamos market cap relativo como proxy de lending capacity
+        bank_weights = np.zeros(len(self.bank_indices))
+        for idx, bi in enumerate(self.bank_indices):
+            # Último precio disponible como proxy de tamaño relativo
+            if not self.prices.empty:
+                ticker = self.tickers[bi]
+                if ticker in self.prices.columns:
+                    last_price = self.prices[ticker].dropna()
+                    bank_weights[idx] = float(last_price.iloc[-1]) if len(last_price) > 0 else 1.0
+
+        # Normalizar: peso relativo entre bancos
+        bw_sum = bank_weights.sum()
+        if bw_sum > 0:
+            bank_weights /= bw_sum
+        else:
+            bank_weights = np.ones(len(self.bank_indices)) / len(self.bank_indices)
+
+        # --- Construir aristas descendentes: bank → company ---
+        LENDING_BASE = 0.02  # peso base de arista de préstamo
+
+        for bi_idx, bi in enumerate(self.bank_indices):
+            bank_country = self.node_countries[bi]
+            for pi in self.prod_indices:
+                prod_country = self.node_countries[pi]
+                # Bancos prestan más a empresas del mismo país
+                country_factor = 1.0 if bank_country == prod_country else 0.2
+                self.W_directed[bi, pi] = LENDING_BASE * bank_weights[bi_idx] * country_factor
+
+        # --- Construir aristas ascendentes: company → bank ---
+        # Proxy: empresas con más deuda pagan más intereses a los bancos
+        # Cargamos debt_to_equity de fundamentals
+        try:
+            fund_resp = self.db.client.table("fundamentals").select(
+                "ticker, debt_to_equity"
+            ).order("report_date", desc=True).execute()
+
+            debt_map = {}
+            if fund_resp.data:
+                for row in fund_resp.data:
+                    t = row["ticker"]
+                    if t not in debt_map and row.get("debt_to_equity") is not None:
+                        debt_map[t] = min(float(row["debt_to_equity"]) / 200.0, 1.0)
+        except Exception:
+            debt_map = {}
+
+        INTEREST_BASE = 0.01  # peso base de arista de intereses
+
+        for pi in self.prod_indices:
+            ticker = self.tickers[pi]
+            debt_ratio = debt_map.get(ticker, 0.3)  # default moderado
+            prod_country = self.node_countries[pi]
+
+            for bi_idx, bi in enumerate(self.bank_indices):
+                bank_country = self.node_countries[bi]
+                country_factor = 1.0 if bank_country == prod_country else 0.2
+                self.W_directed[pi, bi] = INTEREST_BASE * debt_ratio * country_factor
 
     # ─────────────────────────────────────────────────────────────
     # PASO 0.5: Calcular retornos reales (deflactados)
@@ -314,10 +422,15 @@ class GraphBuilder:
         # Sumar: vecinos directos + indirectos (cada uno con su signo propio)
         self.W = W_combined + W2_WEIGHT * W2_norm + W3_WEIGHT * W3_norm
 
-        # Garantizar simetría
+        # Garantizar simetría (intra-nivel)
         self.W = (self.W + self.W.T) / 2
 
+        # ─── Aristas dirigidas inter-nivel (banks ↔ companies) ───
+        self._build_directed_edges()
+
         # ─── Laplaciano de grafo con signo ───
+        # Usamos W simétrico para el Laplaciano (difusión intra-nivel)
+        # Las aristas dirigidas se aplican por separado en heat_engine.solve()
         D = np.diag(np.abs(self.W).sum(axis=1))
         self.L = D - self.W
 
