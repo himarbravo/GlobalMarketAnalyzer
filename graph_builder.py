@@ -141,13 +141,27 @@ class GraphBuilder:
             column="atr_14"
         )
 
-        # --- Macro ---
-        macro_resp = self.db.client.table("macro_indicators").select(
-            "date, vix, yield_10y, yield_2y, dxy, copper, oil_wti"
-        ).order("date").execute()
+        # --- Macro (with pagination) ---
+        macro_data = []
+        offset = 0
+        while True:
+            q = self.db.client.table("macro_indicators").select(
+                "date, vix, yield_10y, yield_2y, dxy, copper, oil_wti"
+            ).order("date")
+            if start_date:
+                q = q.gte("date", start_date)
+            q = q.range(offset, offset + 999)
+            resp = q.execute()
+            if not resp.data:
+                break
+            macro_data.extend(resp.data)
+            if len(resp.data) < 1000:
+                break
+            offset += 1000
+        macro_resp_data = macro_data
 
-        if macro_resp.data:
-            macro_df = pd.DataFrame(macro_resp.data)
+        if macro_resp_data:
+            macro_df = pd.DataFrame(macro_resp_data)
             macro_df["date"] = pd.to_datetime(macro_df["date"])
             macro_df = macro_df.set_index("date").sort_index()
 

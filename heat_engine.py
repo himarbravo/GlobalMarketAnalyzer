@@ -445,7 +445,11 @@ class HeatEngine:
             K_last = K[-1]  # use latest K for weighting
             K_abs = np.abs(K_last) + 1e-8
             L = np.diag(np.sum(self.gb.W, axis=1)) - self.gb.W
-            L_K = (L * K_abs[np.newaxis, :]) / K_abs[:, np.newaxis]
+            # Guard: cap K ratios to prevent Inf from extreme K differences
+            K_ratio = K_abs[np.newaxis, :] / K_abs[:, np.newaxis]
+            K_ratio = np.clip(K_ratio, 0.01, 100.0)
+            L_K = L * K_ratio
+            L_K = np.nan_to_num(L_K, nan=0.0, posinf=0.0, neginf=0.0)
             self.L_K = L_K
 
             # λ contagion signal: how much λ_i differs from K-weighted neighbors
