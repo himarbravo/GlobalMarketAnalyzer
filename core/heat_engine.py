@@ -202,6 +202,53 @@ class HeatEngine:
 
         self.gamma = best_gamma
 
+    def _compute_dynamic_f(self):
+        """
+        Calcula f dinámico por rol de nodo.
+
+        bank:       f = yield_spread × lending_weight (crean dinero)
+        productive: f = (dK/dt + crédito_in - intereses_out) × S(t)
+        """
+        f = np.zeros(self.N)
+
+        # Yield spread (proxy del margen bancario)
+        yield_spread = 0.02  # default 200bps
+        if hasattr(self.gb, 'yield_spread') and len(self.gb.yield_spread) > 0:
+            last_spread = self.gb.yield_spread.iloc[-1]
+            if not np.isnan(last_spread):
+                yield_spread = max(0.005, float(last_spread) / 100.0)
+
+        # Sentiment vector S(t)
+        sentiment = self.ff.get_sentiment_vector(self.tickers)
+
+        # Capital creation rate dK/dt (diario)
+        capital_rates = np.zeros(self.N)
+        if self.capital_field is not None:
+            for i, t in enumerate(self.tickers):
+                capital_rates[i] = self.capital_field.capital_rate_daily.get(t, 0.0)
+
+        # Directed edges (from graph_builder)
+        W_dir = self.gb.W_directed if hasattr(self.gb, 'W_directed') and \
+                self.gb.W_directed.size > 0 else np.zeros((self.N, self.N))
+
+        # Node roles
+        roles = self.gb.node_roles if hasattr(self.gb, 'node_roles') else \
+                ['productive'] * self.N
+
+        for i in range(self.N):
+            if roles[i] == 'bank':
+                # Bancos: crean dinero. f = margen × capacidad de préstamo
+                lending_capacity = W_dir[i, :].sum()  # aristas descendentes
+                f[i] = yield_spread * lending_capacity * sentiment[i]
+            else:
+                # Productive: f = (dK/dt + crédito recibido - intereses pagados) × S
+                dk_dt = capital_rates[i]
+                credit_in = W_dir[:, i].sum()   # préstamos recibidos de bancos
+                interest_out = W_dir[i, :].sum()  # intereses pagados a bancos
+                f[i] = (dk_dt + credit_in - interest_out) * sentiment[i]
+
+        return np.nan_to_num(f, nan=0.0, posinf=0.0, neginf=0.0)
+
     def solve(self, calibrate: bool = True):
         """
         Solve the water-landscape model with INERTIA (2nd order):
@@ -232,7 +279,20 @@ class HeatEngine:
         Phi = self.gb.eigenvectors
         lam_s = np.power(self.gb.eigenvalues, self.gb.s)
         lam_s[0] = 0.0
-        f_vec = np.nan_to_num(self.ff.get_source_vector(self.tickers))
+
+        # Build capital field early (needed for dynamic f)
+        try:
+            from core.capital_field import CapitalField
+            cf = CapitalField(self.ff.db)
+            dates = self.gb.returns.index
+            cf.build(self.tickers, dates)
+            self.capital_field = cf
+        except Exception as e:
+            self.capital_field = None
+            print(f"    ⚠ Capital field para f dinámico no disponible: {e}")
+
+        # Dynamic f: por rol (bank vs productive)
+        f_vec = self._compute_dynamic_f()
         f_k = Phi.T @ f_vec
 
         # Macro velocity v(t) — direction of money flows
@@ -456,11 +516,14 @@ class HeatEngine:
         T, N = self.u_real.shape
 
         try:
-            from core.capital_field import CapitalField
-            cf = CapitalField(self.ff.db)
-            dates = self.gb.returns.index
-            cf.build(self.tickers, dates)
-            self.capital_field = cf
+            if self.capital_field is not None:
+                cf = self.capital_field
+            else:
+                from core.capital_field import CapitalField
+                cf = CapitalField(self.ff.db)
+                dates = self.gb.returns.index
+                cf.build(self.tickers, dates)
+                self.capital_field = cf
 
             # K(t) = terrain — accumulated real capital per asset
             K = cf.c_daily.values if hasattr(cf, 'c_daily') else None

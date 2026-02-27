@@ -2,16 +2,16 @@
 FUNDAMENTAL FILTER — GlobalMarketAnalyzer
 ==========================================
 Clasifica activos en "creadores de valor" vs "especulativos".
-Genera el término fuente f(t) de la ecuación O-U.
+Genera el multiplicador de sentimiento S(t) para la ecuación.
 
 Score Fundamental (7 componentes):
   F = w1·FCF_yield + w2·ROIC_excess + w3·growth_real
     + w4·quality + w5·valuation + w6·analyst + w7·momentum_quality
-  f = γ · tanh(F / F₀)
+  S = 1 + clip(tanh(F / F₀), -0.5, 1.0)   ∈ [0.5, 2.0]
 
-  F >> 0  →  fuente de calor  (empresa genera capital)
-  F ≈  0  →  neutro           (ETF, índice, carry)
-  F << 0  →  sumidero         (especulativo, destruye)
+  S ≈ 2.0  →  euforia fundamentada (amplifica f)
+  S ≈ 1.0  →  neutro (f pasa sin cambio)
+  S ≈ 0.5  →  pesimismo fundamentado (amortigua f)
 """
 
 import numpy as np
@@ -126,14 +126,23 @@ def compute_fundamental_score(row: dict, inflation_annual: float = 0.03) -> floa
     return float(F)
 
 
-def compute_source_term(F: float, F0: float) -> float:
+def compute_sentiment(F: float, F0: float) -> float:
     """
-    Convierte score fundamental F en fuente de calor f.
-    f = γ · tanh(F / F₀)
+    Convierte score fundamental F en multiplicador de sentimiento S.
+    S = 1 + clip(tanh(F / F₀), -0.5, 1.0)  ∈ [0.5, 2.0]
+
+    S ≈ 2.0: euforia fundamentada (empresa excelente)
+    S ≈ 1.0: neutro
+    S ≈ 0.5: pesimismo fundamentado (empresa mala)
     """
     if F0 == 0:
-        return 0.0
-    return GAMMA * np.tanh(F / F0)
+        return 1.0
+    return 1.0 + np.clip(np.tanh(F / F0), -0.5, 1.0)
+
+
+def compute_source_term(F: float, F0: float) -> float:
+    """Legacy: convierte F en f. Mantenido por backward compat."""
+    return GAMMA * np.tanh(F / F0) if F0 != 0 else 0.0
 
 
 class FundamentalFilter:
@@ -144,7 +153,8 @@ class FundamentalFilter:
     def __init__(self, db: DatabaseManager):
         self.db = db
         self.scores: dict[str, float] = {}
-        self.sources: dict[str, float] = {}
+        self.sources: dict[str, float] = {}          # legacy f values
+        self.sentiments: dict[str, float] = {}       # S(t) multiplicador
         self.classifications: dict[str, str] = {}
 
     def compute_all(self, inflation_annual: float = 0.03) -> pd.DataFrame:
@@ -184,8 +194,10 @@ class FundamentalFilter:
         for idx, row in result_df.iterrows():
             ticker = row["ticker"]
             F = row["F"]
-            f = compute_source_term(F, F0)
+            f = compute_source_term(F, F0)  # legacy
+            s = compute_sentiment(F, F0)    # nuevo: multiplicador
             self.sources[ticker] = f
+            self.sentiments[ticker] = s
 
             if F > F0:
                 cls = "value_creator"
@@ -223,8 +235,12 @@ class FundamentalFilter:
         return result_df
 
     def get_source_vector(self, tickers: list[str]) -> np.ndarray:
-        """Devuelve vector f ordenado según la lista de tickers."""
+        """Legacy: vector f ordenado según la lista de tickers."""
         return np.array([self.sources.get(t, 0.0) for t in tickers])
+
+    def get_sentiment_vector(self, tickers: list[str]) -> np.ndarray:
+        """Vector S(t) ∈ [0.5, 2.0] ordenado según la lista de tickers."""
+        return np.array([self.sentiments.get(t, 1.0) for t in tickers])
 
     def get_score_vector(self, tickers: list[str]) -> np.ndarray:
         """Devuelve vector F ordenado según la lista de tickers."""

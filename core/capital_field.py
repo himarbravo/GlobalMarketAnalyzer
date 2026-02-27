@@ -45,6 +45,7 @@ class CapitalField:
         self.delta: pd.DataFrame = pd.DataFrame()        # (T, N) mispricing δ=u-c
         self.confidence: pd.DataFrame = pd.DataFrame()   # (T, N) confianza del dato
         self.capital_rate: dict[str, float] = {}         # Δc trimestral por ticker
+        self.capital_rate_daily: dict[str, float] = {}    # Δc diario = trimestral/252
         self.quality_flag: dict[str, str] = {}           # 'real', 'estimated', 'neutral'
 
     def build(self, tickers: list[str], price_dates: pd.DatetimeIndex,
@@ -65,7 +66,7 @@ class CapitalField:
             "ticker, report_date, market_cap, free_cash_flow, "
             "operating_cash_flow, capex, roic, roe, roa, "
             "revenue_growth, earnings_growth, buyback_yield, "
-            "shares_outstanding, debt_to_equity, beta"
+            "shares_outstanding, debt_to_equity, beta, total_debt"
         ).order("report_date").execute()
 
         if not resp.data:
@@ -119,6 +120,7 @@ class CapitalField:
 
             # Guardar último rate
             self.capital_rate[ticker] = quarterly_rates[-1]["delta_c"]
+            self.capital_rate_daily[ticker] = quarterly_rates[-1]["delta_c"] / 252.0
             self.quality_flag[ticker] = "real" if len(quarterly_rates) >= 2 else "estimated"
 
             # 3. Interpolar diariamente: carry-forward con decay de confianza
@@ -244,6 +246,7 @@ class CapitalField:
         buyback_y = _val("buyback_yield")
         shares = _val("shares_outstanding")
         d2e = _val("debt_to_equity")
+        total_debt = _val("total_debt")
 
         confidence = MAX_CONFIDENCE
         components = {}
@@ -310,15 +313,29 @@ class CapitalField:
         dilution = 0.0  # TODO: comparar shares vs trimestre anterior
         components["dilution"] = dilution
 
+        # ── 6. Delta debt (crédito nuevo = dinero creado) ──
+        # Proxy: si total_debt subió, hubo inyección de crédito
+        # Normalizado por market cap para hacerlo comparable
+        delta_debt = 0.0
+        if total_debt is not None and mc and mc > 0:
+            # Positivo = empresa pidió más prestado (inyección)
+            # Negativo = empresa pagó deuda (drenaje)
+            # Usamos total_debt/mc como proxy del flujo de crédito
+            debt_ratio = total_debt / mc
+            # Escala: deuda al 50% del mc → delta_debt ≈ 0.10
+            delta_debt = np.clip(debt_ratio * 0.20, -0.20, 0.20)
+        components["delta_debt"] = delta_debt
+
         # ── Δc total (tasa anualizada) ──
-        # Pesos: FCF es lo más tangible (40%), EVA es eficiencia (25%),
-        # growth es proyección (20%), shareholder return (15%)
+        # Pesos: FCF (40%), EVA (25%), growth (20%), shareholder (15%)
+        # delta_debt se suma aparte (no ponderado, es flujo de crédito)
         delta_c = (0.40 * fcf_yield +
                    0.25 * eva +
                    0.20 * growth_real +
                    0.15 * shareholder_return -
                    dilution -
-                   inflation_annual)
+                   inflation_annual +
+                   0.10 * delta_debt)  # crédito nuevo = 10% peso en Δc
 
         # Sanity check
         delta_c = np.clip(delta_c, -0.50, 0.50)  # cap a ±50% anual

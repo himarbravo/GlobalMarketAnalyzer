@@ -436,6 +436,7 @@ def ingest_fred(db: DatabaseManager) -> int:
         "cpi_value":          "CPIAUCSL",
         "cpi_yoy":            "CPALTT01USM657N",
         "credit_spread_bbb":  "BAMLC0A4CBBB",
+        "fed_rate":           "FEDFUNDS",        # Federal Funds Effective Rate
     }
 
     all_series = {}
