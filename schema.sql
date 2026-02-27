@@ -284,6 +284,13 @@ CREATE TABLE IF NOT EXISTS macro_indicators (
     -- Política monetaria
     fed_rate        DOUBLE PRECISION,
 
+    -- FRED: Inflación
+    cpi_value       DOUBLE PRECISION,   -- CPI Urban All Items (index)
+    cpi_yoy         DOUBLE PRECISION,   -- CPI Year-over-Year %
+
+    -- FRED: Crédito
+    credit_spread_bbb DOUBLE PRECISION, -- BBB Option-Adjusted Spread (%)
+
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 

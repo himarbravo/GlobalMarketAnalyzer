@@ -414,6 +414,84 @@ def ingest_macro(db: DatabaseManager, period: str = "2y") -> int:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# INGESTA FRED (CPI, Credit Spreads)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def ingest_fred(db: DatabaseManager) -> int:
+    """Fetch FRED data (CPI, credit spreads) and merge into macro_indicators."""
+    from fred_client import FREDClient
+
+    if not config.FRED_API_KEY:
+        logger.warning("  ⚠ FRED_API_KEY not set, skipping FRED ingestion")
+        return 0
+
+    try:
+        fred = FREDClient(config.FRED_API_KEY)
+    except Exception as e:
+        logger.error(f"  ✗ FRED client error: {e}")
+        return 0
+
+    # Fields to fetch and their FRED series
+    fred_fields = {
+        "cpi_value":          "CPIAUCSL",
+        "cpi_yoy":            "CPALTT01USM657N",
+        "credit_spread_bbb":  "BAMLC0A4CBBB",
+    }
+
+    all_series = {}
+    for field, series_id in fred_fields.items():
+        try:
+            df = fred.get_series(series_id)
+            if not df.empty:
+                all_series[field] = df
+                logger.info(f"  ✓ FRED {field}: {len(df)} observations")
+            else:
+                logger.warning(f"  ⚠ FRED {field}: no data")
+        except Exception as e:
+            logger.warning(f"  ✗ FRED {field}: {e}")
+
+    if not all_series:
+        return 0
+
+    # Build records: merge all series by date
+    # Monthly series (CPI) need forward-fill to daily
+    all_dates = set()
+    for field, df in all_series.items():
+        for d in df["date"]:
+            all_dates.add(d.strftime("%Y-%m-%d"))
+
+    # Also get existing macro dates to merge with
+    existing = db.client.table("macro_indicators").select("date").order(
+        "date", desc=True
+    ).limit(1000).execute()
+    if existing.data:
+        for row in existing.data:
+            all_dates.add(row["date"])
+
+    records = []
+    for date_str in sorted(all_dates):
+        row = {"date": date_str}
+        dt = pd.Timestamp(date_str)
+        has_data = False
+        for field, df in all_series.items():
+            # Find most recent value on or before this date
+            mask = df["date"] <= dt
+            if mask.any():
+                val = df.loc[mask, "value"].iloc[-1]
+                row[field] = round(float(val), 4)
+                has_data = True
+        if has_data:
+            records.append(row)
+
+    if not records:
+        return 0
+
+    inserted = db.upsert_macro_bulk(records)
+    logger.info(f"  ✓ FRED: {inserted} records merged into macro_indicators")
+    return inserted
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # INGESTA FUNDAMENTALS
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -613,7 +691,7 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["historical", "incremental", "macro", "fundamentals", "sectors"],
+        choices=["historical", "incremental", "macro", "fred", "fundamentals", "sectors"],
         default="incremental",
     )
     parser.add_argument("--period", default=config.INGESTION["DEFAULT_PERIOD"])
@@ -637,18 +715,21 @@ def main():
     t0 = time.time()
 
     if args.mode == "historical":
-        logger.info(f"\n[1/4] Precios históricos ({args.period})...")
+        logger.info(f"\n[1/5] Precios históricos ({args.period})...")
         ingest_prices(db, price_tickers, period=args.period)
 
-        logger.info(f"\n[2/4] Macro ({args.period})...")
+        logger.info(f"\n[2/5] Macro ({args.period})...")
         ingest_macro(db, period=args.period)
 
-        logger.info("\n[3/4] Fundamentales...")
+        logger.info("\n[3/5] FRED (CPI, credit spreads)...")
+        ingest_fred(db)
+
+        logger.info("\n[4/5] Fundamentales...")
         equities = [t for t in price_tickers
                      if config.get_asset_type(t) in ("equity", "etf")]
         ingest_fundamentals(db, equities)
 
-        logger.info("\n[4/4] Rotación sectorial...")
+        logger.info("\n[5/5] Rotación sectorial...")
         ingest_sectors(db, period=args.period)
 
     elif args.mode == "incremental":
@@ -659,6 +740,10 @@ def main():
 
     elif args.mode == "macro":
         ingest_macro(db, period=args.period)
+        ingest_fred(db)
+
+    elif args.mode == "fred":
+        ingest_fred(db)
 
     elif args.mode == "fundamentals":
         equities = [t for t in price_tickers
