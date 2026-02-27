@@ -1,13 +1,19 @@
 """
 HEAT ENGINE — GlobalMarketAnalyzer
 ====================================
-Resuelve advección-difusión fraccional en el grafo:
+Resuelve advección-difusión fraccional CON INERCIA en el grafo:
 
-  du/dt = -α · L^s · (u - μ(t)) + v(t) + f(t)
+  γ·d²m/dt² + dm/dt = -α · L^s · m + v(t) + f(t)
 
-  difusión:  -α·L^s·u        → equilibrar (calor fluye de caliente a frío)
+  inercia:    γ·d²m/dt²       → el dinero tiene masa (momentum de mercado)
+  fricción:   dm/dt           → amortiguamiento natural
+  difusión:  -α·L^s·m         → equilibrar (calor fluye de caliente a frío)
   advección:  v(t)            → expectativa (dónde se MOVERÁ el dinero)
   fuente:     f(t)            → fundamentales (quién genera/destruye valor)
+
+  γ=1: O-U puro (sin inercia, comportamiento original)
+  γ>1: trends persisten (el mercado tiene memoria)
+  γ→∞: momentum puro (trend following)
 
 Calcula:
   - u_pred(t): predicción del modelo
@@ -30,6 +36,8 @@ LAMBDA_TREND_TH = 0.10    # modos con λ < esto son TENDENCIA
 TRAIN_FRAC      = 0.70    # fracción para calibración (rest = test)
 ALPHA_REG       = 0.10    # regularización: penalizar α bajos
 MOMENTUM_WIN    = 20      # ventana para estimar momentum de modos lentos
+GAMMA_DEFAULT   = 5.0     # inercia: γ=1 → O-U puro, γ>1 → momentum
+GAMMA_RANGE     = (1.0, 50.0)  # rango para calibración de γ
 
 
 class HeatEngine:
@@ -49,6 +57,7 @@ class HeatEngine:
         self.ff = fundamental_filter
 
         self.alpha: float = ALPHA_DEFAULT
+        self.gamma: float = GAMMA_DEFAULT
         self.tickers = graph_builder.tickers
         self.N = graph_builder.N
 
@@ -141,18 +150,70 @@ class HeatEngine:
             res = minimize_scalar(mode_error_oos, bounds=ALPHA_RANGE, method='bounded')
             self.alpha_per_mode[k] = float(res.x)
 
+    def calibrate_gamma(self):
+        """
+        Calibra γ (inercia) via grid search con train/test split.
+        γ=1 → O-U puro (sin inercia), γ>1 → el dinero tiene momentum.
+
+        Ecuación de 2do orden: γ·m'' + m' = -μ·(m - m_eq)
+        Discretizada: m[t+1] = m[t] + (1-1/γ)·v[t] - (μ/γ)·(m[t] - m_eq)
+        """
+        u = self.gb.u.astype(np.float64)
+        u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
+        T_len = len(u)
+
+        if T_len < 60:
+            self.gamma = GAMMA_DEFAULT
+            return
+
+        Phi = self.gb.eigenvectors
+        lam_s = np.power(self.gb.eigenvalues, self.gb.s)
+        lam_s[0] = 0.0
+        f_vec = np.nan_to_num(self.ff.get_source_vector(self.tickers))
+        f_k = Phi.T @ f_vec
+        m_k = u @ Phi
+
+        alpha_vec = np.full(self.N, self.alpha)
+        alpha_vec[:min(self.N, 30)] = self.alpha_per_mode[:min(self.N, 30)]
+        mu = alpha_vec * lam_s
+        m_eq = np.where(mu > 1e-10, f_k / mu, 0.0)
+
+        t_split = int(T_len * TRAIN_FRAC)
+
+        # Spectral velocity: v_k[t] = m_k[t] - m_k[t-1]
+        vel = np.zeros_like(m_k)
+        vel[1:] = np.diff(m_k, axis=0)
+
+        best_gamma = 1.0  # default = sin inercia (comportamiento original)
+        best_err = np.inf
+
+        for gamma_c in [1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0, 35.0, 50.0]:
+            mw = 1.0 - 1.0 / gamma_c       # momentum weight
+            rw = mu / gamma_c               # revert weight
+
+            pred = (m_k[t_split:-1]
+                    + mw * vel[t_split:-1]
+                    - rw * (m_k[t_split:-1] - m_eq))
+            err = float(np.sum((m_k[t_split+1:] - pred) ** 2))
+
+            if err < best_err:
+                best_err = err
+                best_gamma = gamma_c
+
+        self.gamma = best_gamma
+
     def solve(self, calibrate: bool = True):
         """
-        Solve the water-landscape model:
+        Solve the water-landscape model with INERTIA (2nd order):
 
-        dm/dt = -α·L^s·m + v(t) + QE(t)    (money = fluid on graph)
-        dK/dt = g(t)                        (capital = terrain, local)
-        λ = m / K                           (valuation multiple, derived)
-        u = λ · K = m                       (price = money assigned)
+        γ·d²m/dt² + dm/dt = -α·L^s·m + v(t) + f(t)
 
-        Spectral decomposition of the money equation:
-          Revert modes: m_k(t+1) = m_k(t)·e^{-μ} + f_k/μ·(1-e^{-μ})
-          Trend modes:  m_k(t+1) = m_k(t) + β_k·Δm_k (momentum)
+        When γ=1: reduces to original O-U (no inertia)
+        When γ>1: money has momentum, trends persist
+        When γ→∞: pure trend following
+
+        Spectral decomposition per mode k:
+          m_k[t+1] = m_k[t] + (1-1/γ)·v_k[t] - (μ_k/γ)·(m_k[t] - m_eq_k)
           + advection v(t) pushes money per macro flows
         """
         # m(t) = money field ≡ u(t) (cumulative real returns = money assigned)
@@ -164,6 +225,9 @@ class HeatEngine:
 
         if calibrate:
             self.calibrate_alpha()
+            self.calibrate_gamma()
+            print(f"    α={self.alpha:.4f} | γ={self.gamma:.1f} "
+                  f"(momentum_weight={1-1/self.gamma:.2f})")
 
         Phi = self.gb.eigenvectors
         lam_s = np.power(self.gb.eigenvalues, self.gb.s)
@@ -177,52 +241,60 @@ class HeatEngine:
         # Project money to spectral space
         m_k_real = m @ Phi  # (T, N)
 
-        # Solve one-step-ahead per mode
+        # ═══ SECOND-ORDER SOLVER: Damped oscillator with inertia ═══
+        # γ·m'' + m' = -μ·(m - m_eq) + advection
+        # Discrete: m[t+1] = m[t] + (1-1/γ)·v[t] - (μ/γ)·(m[t]-m_eq) + adv
+        #
+        # γ=1  → pure O-U (backward compatible with previous version)
+        # γ>1  → money has inertia, trends persist longer
+        # γ→∞  → pure momentum (random walk with trend following)
         m_k_pred = np.zeros_like(m_k_real)
         m_k_pred[0] = m_k_real[0]
 
-        # --- Revert modes: O-U on money ---
         alpha_vec = np.full(self.N, self.alpha)
         alpha_vec[:min(self.N, 30)] = self.alpha_per_mode[:min(self.N, 30)]
-        mu = alpha_vec * lam_s
-        decay = np.where(mu > 1e-10, np.exp(-mu), 1.0)
-        eq_term = np.where(mu > 1e-10, f_k / np.maximum(mu, 1e-10) * (1 - decay), f_k)
+        mu = alpha_vec * lam_s  # restoring rate per mode
 
-        # --- Trend modes: momentum ---
-        is_trend = np.array([mt == 'trend' for mt in self.mode_type])
-        n_trend = int(np.sum(is_trend))
+        # Equilibrium per mode: m_eq_k = f_k / μ_k
+        m_eq = np.where(mu > 1e-10, f_k / mu, 0.0)
 
-        # Project v(t) to spectral space
+        # Inertia coefficients (derived from γ)
+        gamma = self.gamma
+        momentum_weight = 1.0 - 1.0 / gamma   # 0 when γ=1, →1 when γ→∞
+        revert_weight = mu / gamma             # strong when γ=1, weak when γ→∞
+
+        # Spectral velocity: v_k[t] = m_k[t] - m_k[t-1]
+        spectral_velocity = np.zeros_like(m_k_real)
+        spectral_velocity[1:] = np.diff(m_k_real, axis=0)
+
+        # Project v(t) to spectral space for advection
         v_spectral = self.macro_velocity @ Phi if len(self.macro_velocity) > 0 \
             else np.zeros_like(m_k_real)
 
         ADV_WEIGHT = 0.05
 
         for t in range(T_len - 1):
-            # Revert: O-U + advection on money
-            m_k_pred[t + 1] = m_k_real[t] * decay + eq_term
+            # Second-order prediction: position + inertia + restoring force
+            m_k_pred[t + 1] = (
+                m_k_real[t]                                          # current position
+                + momentum_weight * spectral_velocity[t]             # inertia term
+                - revert_weight * (m_k_real[t] - m_eq)              # restoring force
+            )
+
+            # Advection: macro velocity pushes money
             if t < len(v_spectral):
                 m_k_pred[t + 1] += ADV_WEIGHT * v_spectral[t]
-
-            # Trend: momentum + advection
-            if n_trend > 0 and t >= MOMENTUM_WIN:
-                for k in range(self.N):
-                    if not is_trend[k]:
-                        continue
-                    deltas = np.diff(m_k_real[max(0, t-MOMENTUM_WIN):t+1, k])
-                    if len(deltas) > 0:
-                        beta_k = np.mean(deltas)
-                        m_k_pred[t + 1, k] = m_k_real[t, k] + beta_k
-                        if t < len(v_spectral):
-                            m_k_pred[t + 1, k] += ADV_WEIGHT * v_spectral[t, k]
 
         # Spectral residuals
         self.spectral_res = m_k_real - m_k_pred
 
-        # Mode info for signals
-        self.is_trend_mode = is_trend
-        self.n_trend_modes = n_trend
-        self.n_revert_modes = self.N - n_trend
+        # Store spectral velocity for diagnostics
+        self.spectral_velocity = spectral_velocity
+
+        # Mode classification (informational, preserved for compatibility)
+        self.is_trend_mode = np.array([lam_s[k] < LAMBDA_TREND_TH for k in range(self.N)])
+        self.n_trend_modes = int(np.sum(self.is_trend_mode))
+        self.n_revert_modes = self.N - self.n_trend_modes
 
         # Reconstruct in real space
         self.u_real = m  # m(t) = money = price (they're the same thing)
