@@ -268,101 +268,93 @@ Las correlaciones se calculan sobre $r^{resid}$, capturando relaciones reales (s
 
 ---
 
-## 10. Modelo de Tres Campos: $u(t)$, $c(t)$, $\lambda(t)$
+## 10. Modelo de Fluido-Temperatura: $c$ (materia), $\lambda$ (temperatura)
 
-### 10.1 Vista general
+### 10.1 La analogía correcta
 
-El mercado se describe por **tres campos** acoplados sobre el grafo:
-
-| Campo | Significado | Actualización | Difunde? |
-|---|---|---|---|
-| $u_i(t)$ | Precio real acumulado | Diario (precio observado) | Sí — capital redistribuido por L |
-| $c_i(t)$ | Capital real creado | Trimestral (earnings) | No — creación es local |
-| $\lambda_i(t)$ | Múltiplo de valoración | Diario (inferido de u/c) | Sí — por sector, dirigido |
-
-La **señal de trading** emerge de las divergencias entre estos campos:
-- $u > \lambda \cdot c$ → sobrevalorado respecto al régimen actual
-- $u < \lambda \cdot c$ → infravalorado, oportunidad
-
-### 10.2 Ecuación completa del sistema
-
-$$\frac{\partial u}{\partial t} = -\alpha \cdot L^s \cdot u + v(t) + f(t) + \kappa \cdot (\lambda \cdot c - u)$$
-
-$$\frac{\partial c}{\partial t} = g_i(t) \quad \text{(local, sin difusión)}$$
-
-$$\frac{\partial \lambda}{\partial t} = -\alpha_\lambda \cdot \tilde{L} \cdot (\lambda - \lambda_{eq}(s)) + \eta \cdot \frac{\Delta c}{c} + \xi \cdot \nabla_s u$$
-
-| Término | Ecuación | Significado |
+| Concepto físico | Concepto financiero | Variable |
 |---|---|---|
-| $-\alpha \cdot L^s \cdot u$ | Difusión fraccional | El capital se redistribuye por el grafo |
-| $v(t) = \beta \cdot \Delta M$ | Advección macro | Dónde fluye el dinero nuevo (QE/QT) |
-| $f(t)$ | Source fundamental | Creación/destrucción de valor fundamental |
-| $\kappa(\lambda c - u)$ | **Acoplamiento precio↔capital** | Fuerza restauradora: el precio tiende a $\lambda \cdot c$ |
-| $g_i(t)$ | Creación de capital real | FCF yield + EVA + growth real (trimestral) |
-| $-\alpha_\lambda \tilde{L} (\lambda - \lambda_{eq})$ | **Difusión de múltiplos** | Los PE ratios se contagian entre empresas similares |
-| $\eta \Delta c / c$ | Shock de earnings | Sorpresa positiva en capital → λ salta |
-| $\xi \nabla_s u$ | **Momentum de precio** | Si u sube rápido → λ sube (reflexividad de Soros) |
+| **Fluido (materia)** | Capital real | $c_i(t)$ — la sustancia que fluye |
+| **Temperatura del fluido** | Múltiplo de valoración | $\lambda_i(t)$ — propiedad transportada por c |
+| **Energía observable** | Precio (lo que se ve en el mercado) | $u_i(t) = \lambda_i \cdot c_i$ |
+| **Velocidad del fluido** | Dirección de los flujos de capital | $v(t)$ — advección macro |
+| **Fuentes/sumideros** | Creación/destrucción de capital real | $g_i(t)$ — earnings, QE, defaults |
 
-### 10.3 El grafo dirigido $\tilde{L}$
+El capital ($c$) es la **materia** — se mueve, fluye entre sectores, entra y sale del sistema. Lambda ($\lambda$) es la **temperatura** que viaja CON el capital: cuando el capital sale de tech y va a bonos, lleva consigo las expectativas de valoración.
 
-Para la difusión de $\lambda$, el Laplaciano **no es simétrico**:
+### 10.2 Ecuaciones del sistema acoplado
 
-$$\tilde{W}_{ij} \neq \tilde{W}_{ji}$$
+#### Ecuación de continuidad del capital (el fluido)
+$$\frac{\partial c_i}{\partial t} = - \nabla \cdot (c_i \cdot v_i) - \alpha_c \cdot L \cdot c_i + g_i(t)$$
 
-AAPL re-evalúa a todo tech (AAPL→MSFT fuerte), pero DELL no re-evalúa a AAPL (DELL→AAPL débil). El grafo dirigido se construye a partir de:
+| Término | Significado |
+|---|---|
+| $-\nabla \cdot (c \cdot v)$ | **Convección**: el capital fluye por el grafo con velocidad $v$ |
+| $-\alpha_c \cdot L \cdot c$ | **Difusión**: el capital se redistribuye hacia equilibrio |
+| $g_i(t)$ | **Fuentes/sumideros**: FCF crea capital, defaults lo destruyen, QE lo inyecta |
 
-1. **Causalidad de Granger** entre retornos: ¿cambios en $i$ predicen cambios en $j$?
-2. **Capitalización asimétrica**: empresas grandes influyen más → $\tilde{W}_{ij} \propto \sqrt{MC_i / MC_j}$
-3. **Cross-lag dirigido**: el lag óptimo $\ell^*_{ij}$ indica dirección ($\ell > 0$: $i$ lidera $j$)
+En el grafo, la divergencia $\nabla \cdot (c \cdot v)$ se discretiza como:
+$$[\nabla \cdot (c \cdot v)]_i = \sum_{j \in \mathcal{N}(i)} W_{ij} \cdot (c_j \cdot v_j - c_i \cdot v_i)$$
 
-El Laplaciano dirigido tiene **eigenvalores complejos**: $\lambda_k = a_k + ib_k$
+#### Ecuación de advección-difusión de λ (la temperatura)
+$$\frac{\partial \lambda_i}{\partial t} = - v_i \cdot \nabla \lambda_i - \alpha_\lambda \cdot L^s \cdot (\lambda_i - \lambda_{eq}(s)) + \eta \cdot \frac{\Delta c_i}{c_i}$$
 
-- $a_k > 0$: el modo se amortigua (difusión)
-- $b_k \neq 0$: el modo **oscila** (rotación de capital entre sectores)
-- La parte imaginaria captura **ciclos**: tech→bonds→commodities→tech
+| Término | Significado |
+|---|---|
+| $-v \cdot \nabla \lambda$ | **Advección**: λ es arrastrada POR el flujo de capital |
+| $-\alpha_\lambda L^s (\lambda - \lambda_{eq})$ | **Difusión fraccional**: λ se contagia lento entre empresas similares |
+| $\eta \cdot \Delta c / c$ | **Shock local**: cuando c salta (earnings surprise), λ reacciona |
 
-### 10.4 Medición de los campos
+En el grafo:
+$$[v \cdot \nabla \lambda]_i = \sum_{j \in \mathcal{N}(i)} W_{ij} \cdot v_{ij} \cdot (\lambda_j - \lambda_i)$$
 
-#### Campo u(t) — implementado
-$$u_i(t) = \sum_{\tau=1}^{t} \left[ r_i(\tau) - \pi(\tau) \right] \quad \text{(retorno real acumulado)}$$
+#### Precio observable
+$$u_i(t) = \lambda_i(t) \cdot c_i(t)$$
 
-#### Campo c(t) — implementado
-$$\Delta c_i(t) = 0.40 \cdot \frac{\text{FCF}_i - 0.5\cdot\text{SBC}_i}{MC_i} + 0.25 \cdot \max(0, \text{ROIC}_i - \text{WACC}) + 0.20 \cdot (g_{\text{rev}} - \pi) + 0.15 \cdot \text{buyback\_yield}_i$$
+El precio no tiene ecuación propia — es el **producto** de cuánto capital hay × cuánto lo valora el mercado.
 
-Actualización trimestral, interpolado linealmente con decay de confianza.
+### 10.3 Velocidad del fluido $v(t)$
 
-#### Campo λ(t) — por implementar
-$$\lambda_i(t) = \frac{u_i(t)}{c_i(t)} \quad \text{cuando } c_i(t) \neq 0$$
+La velocidad del capital es el campo que ya calculamos como macro velocity:
 
-O equivalentemente, de los múltiplos:
-$$\lambda_i(t) \approx \frac{PE_i(t)}{PE_{sector,median}}$$
+$$v_i(t) = \sum_j \beta_{ij}(t) \cdot \Delta M_j(t) + \text{injection}(t)$$
 
-### 10.5 Reescalado empírico de $\lambda$
+Pero ahora tiene interpretación física: es la velocidad de flujo del capital en el nodo $i$. Capital flows TO $i$ si $v_i > 0$ y AWAY si $v_i < 0$.
 
-Para cuadrar unidades entre $u$ y $c$, se usa el **valor esperado histórico** de la interacción:
+### 10.4 Equilibrio de λ por régimen
 
-$$\lambda^*_i = \frac{\langle u_i \cdot c_i \rangle}{\langle c_i^2 \rangle} \quad \text{(regresión OLS)}$$
+$$\lambda_{eq}(s) = \begin{cases}
+\lambda_{crisis} \approx 5-8 & \text{si } s < 0.40 \\
+\lambda_{stress} \approx 10-15 & \text{si } 0.40 \leq s < 0.65 \\
+\lambda_{normal} \approx 18-22 & \text{si } 0.65 \leq s < 0.85 \\
+\lambda_{hype} \approx 30-50 & \text{si } s \geq 0.85
+\end{cases}$$
 
-**Condicionado por régimen**: $\lambda$ se calibra separadamente en cada tipo de mercado:
+Calibrado históricamente: $\lambda_{eq}(R) = \text{median}(\lambda_i)$ para días en régimen $R$.
 
-$$\lambda^*_i(s) = \frac{\langle u_i \cdot c_i \rangle_{R(s)}}{\langle c_i^2 \rangle_{R(s)}}$$
+### 10.5 La señal de trading: mispricing
 
-donde $R(s)$ selecciona los días pertenecientes al régimen identificado por $s(t)$:
+$$\delta_i(t) = \lambda_i(t) - \lambda_{eq}(s(t))$$
 
-| Régimen $R$ | Condición | Ciclos históricos |
-|---|---|---|
-| **Crisis** | $s < 0.40$ | 2008, COVID mar-2020, SVB 2023 |
-| **Stress** | $0.40 \leq s < 0.65$ | 2011 EU crisis, 2018 Q4, 2022 rate hikes |
-| **Normal** | $0.65 \leq s < 0.85$ | 2006-2007, 2013-2014, 2017, 2025 |
-| **Calma/Hype** | $s \geq 0.85$ | Dotcom 1999, post-QE 2013, AI 2023-2024 |
+O equivalentemente, usando el reescalado empírico $\lambda^*_i(R)$:
 
-### 10.6 El mispricing con λ corregido
+$$\delta_i(t) = \frac{u_i(t)}{c_i(t)} - \lambda^*_i(s(t))$$
 
-$$\delta_i(t) = u_i(t) - \lambda^*_i(s(t)) \cdot c_i(t)$$
+- $\delta > 0$: el mercado valora este capital MÁS de lo normal para este régimen → sobrevalorado
+- $\delta < 0$: lo valora MENOS → infravalorado
+- Cuando el capital FLUYE hacia $i$ ($v_i > 0$) Y $\delta_i < 0$ → señal fuerte de compra: el capital llega a algo infravalorado
 
-- $\delta > 0$: precio por encima del múltiplo esperado PARA ESTE RÉGIMEN → sobrevaluado
-- $\delta < 0$: precio por debajo → infravalorado
-- La clave: durante hype ($s$ alto), $\lambda^*$ es alto → se tolera más "sobrevaloración"
+### 10.6 Conservación y no-conservación
+
+> [!IMPORTANT]
+> El capital $c$ **NO se conserva**: $\sum_i g_i(t) \neq 0$
+> - QE: $g > 0$ para todos (inyección sistémica)
+> - Defaults: $g_i \ll 0$ para la empresa afectada
+> - Earnings: $g_i > 0$ localizado
+>
+> Lambda $\lambda$ **tampoco se conserva** — el mercado puede decidir colectivamente valorar TODO a múltiplos más altos (expansión de múltiplos) o más bajos (contracción).
+>
+> Lo que se conserva a corto plazo es el **dinero total**: cuando vendes AAPL y compras XOM, el flujo es $c_{AAPL} \to c_{XOM}$ sin creación neta. Pero a largo plazo, earnings crean y defaults destruyen.
 
 ---
 
