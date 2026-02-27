@@ -174,18 +174,24 @@ class CapitalField:
 
         Profesional-grade: 5 componentes netos con ajustes por calidad.
         """
-        mc = row.get("market_cap")
-        fcf = row.get("free_cash_flow")
-        ocf = row.get("operating_cash_flow")
-        capex = row.get("capex")
-        roic = row.get("roic")
-        roe = row.get("roe")
-        roa = row.get("roa")
-        rev_g = row.get("revenue_growth")
-        earn_g = row.get("earnings_growth")
-        buyback_y = row.get("buyback_yield")
-        shares = row.get("shares_outstanding")
-        d2e = row.get("debt_to_equity")
+        # Use pd.notna() throughout — Supabase NULL becomes pandas NaN,
+        # and 'nan is not None' is True, which caused K=NaN for 34 tickers
+        def _val(key):
+            v = row.get(key)
+            return v if pd.notna(v) else None
+
+        mc = _val("market_cap")
+        fcf = _val("free_cash_flow")
+        ocf = _val("operating_cash_flow")
+        capex = _val("capex")
+        roic = _val("roic")
+        roe = _val("roe")
+        roa = _val("roa")
+        rev_g = _val("revenue_growth")
+        earn_g = _val("earnings_growth")
+        buyback_y = _val("buyback_yield")
+        shares = _val("shares_outstanding")
+        d2e = _val("debt_to_equity")
 
         confidence = MAX_CONFIDENCE
         components = {}
