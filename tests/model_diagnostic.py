@@ -20,11 +20,11 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from database_manager import DatabaseManager
-from fundamental_filter import FundamentalFilter
-from graph_builder import GraphBuilder
-from heat_engine import HeatEngine
-from inertia_detector import InertiaDetector
+from db.database_manager import DatabaseManager
+from core.fundamental_filter import FundamentalFilter
+from core.graph_builder import GraphBuilder
+from core.heat_engine import HeatEngine
+from core.inertia_detector import InertiaDetector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)

@@ -14,11 +14,11 @@ import pandas as pd
 import logging
 from scipy.linalg import eigh
 
-from database_manager import DatabaseManager
-from graph_builder import GraphBuilder
-from fundamental_filter import FundamentalFilter
-from heat_engine import HeatEngine
-from inertia_detector import InertiaDetector
+from db.database_manager import DatabaseManager
+from core.graph_builder import GraphBuilder
+from core.fundamental_filter import FundamentalFilter
+from core.heat_engine import HeatEngine
+from core.inertia_detector import InertiaDetector
 
 logging.basicConfig(level=logging.WARNING)
 

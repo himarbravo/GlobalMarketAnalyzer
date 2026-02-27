@@ -14,7 +14,7 @@ Pipeline:
 
 import numpy as np
 import pandas as pd
-from database_manager import DatabaseManager
+from db.database_manager import DatabaseManager
 
 
 # ── Parámetros del grafo ──

@@ -384,7 +384,7 @@ class HeatEngine:
         T, N = self.u_real.shape
 
         try:
-            from capital_field import CapitalField
+            from core.capital_field import CapitalField
             cf = CapitalField(self.ff.db)
             dates = self.gb.returns.index
             cf.build(self.tickers, dates)

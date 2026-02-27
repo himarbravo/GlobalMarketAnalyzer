@@ -15,10 +15,10 @@ python visualize_3d.py
 import numpy as np
 import plotly.graph_objects as go
 import logging
-from database_manager import DatabaseManager
-from graph_builder import GraphBuilder
-from fundamental_filter import FundamentalFilter
-from heat_engine import HeatEngine
+from db.database_manager import DatabaseManager
+from core.graph_builder import GraphBuilder
+from core.fundamental_filter import FundamentalFilter
+from core.heat_engine import HeatEngine
 
 logging.basicConfig(level=logging.WARNING)
 

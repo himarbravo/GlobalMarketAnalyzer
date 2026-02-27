@@ -28,7 +28,7 @@ import pandas as pd
 import yfinance as yf
 
 import config
-from database_manager import DatabaseManager
+from db.database_manager import DatabaseManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -419,7 +419,7 @@ def ingest_macro(db: DatabaseManager, period: str = "2y") -> int:
 
 def ingest_fred(db: DatabaseManager) -> int:
     """Fetch FRED data (CPI, credit spreads) and merge into macro_indicators."""
-    from fred_client import FREDClient
+    from db.fred_client import FREDClient
 
     if not config.FRED_API_KEY:
         logger.warning("  ⚠ FRED_API_KEY not set, skipping FRED ingestion")

@@ -10,8 +10,8 @@ Hipótesis: VIX↑ → s↓ (difusión global en crisis)
 import numpy as np
 import pandas as pd
 import logging
-from database_manager import DatabaseManager
-from graph_builder import GraphBuilder
+from db.database_manager import DatabaseManager
+from core.graph_builder import GraphBuilder
 from config import get_all_tickers
 
 logging.basicConfig(level=logging.WARNING)
