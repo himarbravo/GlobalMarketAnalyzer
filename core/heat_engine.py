@@ -480,60 +480,109 @@ class HeatEngine:
 
         ADV_WEIGHT = 0.05
 
-        # ═══ KALMAN FILTER for f_k adaptation ═══
-        # State:       f_k[t+1] = f_k[t] + w,  w ~ N(0, Q)
-        # Observation:  m_k[t] = h(f_k) + v,   v ~ N(0, R)
-        # where h is linear: dm_pred/df_k = revert_weight / μ
+        # ═══ BAYESIAN ADAPTATION: Kalman / EKF filters ═══
         #
-        # The filter updates f_k at each timestep so the equilibrium
-        # m_eq adapts to prediction errors the static f can't capture.
-        # Future: EKF for (α, γ), UKF for s — see README roadmap.
-        f_k_est = f_k.copy()                    # state estimate
-        P_k = np.ones(self.N) * 0.1             # state covariance per mode
-        Q_k = self.kalman_Q                     # process noise
-        R_k = self.kalman_R                     # observation noise
-        # Observation sensitivity: H_k = ∂m_pred/∂f_k = revert_weight / μ
-        H_k = np.where(mu > 1e-10, revert_weight / mu, 0.0)
-        # Track Kalman gain for diagnostics
-        K_accum = np.zeros(self.N)
+        # Three filters run in parallel per timestep:
+        #
+        # 1. KF  for f_k  — linear, per-mode scalar
+        #    State:  f_k[t+1] = f_k[t] + w                (random walk)
+        #    H_f  =  revert_weight / μ                     (∂m_pred/∂f_k)
+        #
+        # 2. EKF for α_k  — linearized, per-mode scalar
+        #    State:  α_k[t+1] = α_k[t] + w                (random walk)
+        #    H_α  =  -(λ^s_k / γ) · m_k[t]               (∂m_pred/∂α_k)
+        #
+        # 3. EKF for γ    — linearized, global scalar
+        #    State:  γ[t+1] = γ[t] + w                    (random walk)
+        #    H_γ  =  (1/γ²) · (v[t] + μ·(m[t]-m_eq))    (∂m_pred/∂γ, summed)
+        #
+
+        # --- Filter 1: f_k (source term, per mode) ---
+        f_k_est = f_k.copy()
+        P_f = np.ones(self.N) * 0.1
+        Q_f = self.kalman_Q         # 0.001
+        R_obs = self.kalman_R       # 0.01
+
+        # --- Filter 2: α_k (diffusion rate, per mode) ---
+        alpha_k_est = alpha_vec.copy()
+        P_alpha = np.ones(self.N) * 0.01
+        Q_alpha = 0.0001            # α changes very slowly
+
+        # --- Filter 3: γ (inertia, global scalar) ---
+        gamma_est = float(gamma)
+        P_gamma = 0.5
+        Q_gamma = 0.001             # γ drifts slowly
+
+        # Diagnostics
+        K_f_accum = np.zeros(self.N)
         n_updates = 0
 
         # Ω equilibrium shift (static, from dimensional corrections)
         omega_eq = np.where(mu > 1e-10, omega_k / mu, 0.0)
 
         for t in range(T_len - 1):
-            # --- PREDICT: use current f_k_est to compute m_eq ---
-            m_eq_t = np.where(mu > 1e-10, f_k_est / mu, 0.0) + omega_eq
+            # Current dynamic parameters
+            mu_t = alpha_k_est * lam_s
+            rw_t = np.where(gamma_est > 0.1, mu_t / gamma_est, mu_t)
+            mw_t = 1.0 - 1.0 / max(gamma_est, 0.5)
 
-            # Second-order prediction: position + inertia + restoring force
+            # --- PREDICT: use adapted f_k, α_k, γ ---
+            m_eq_t = np.where(mu_t > 1e-10, f_k_est / mu_t, 0.0) + omega_eq
+
             m_k_pred[t + 1] = (
-                m_k_real[t]                                          # current position
-                + momentum_weight * spectral_velocity[t]             # inertia term
-                - revert_weight * (m_k_real[t] - m_eq_t)            # restoring force
+                m_k_real[t]
+                + mw_t * spectral_velocity[t]
+                - rw_t * (m_k_real[t] - m_eq_t)
             )
 
-            # Advection: macro velocity pushes money
             if t < len(v_spectral):
                 m_k_pred[t + 1] += ADV_WEIGHT * v_spectral[t]
 
-            # --- UPDATE: Kalman correction of f_k ---
+            # --- UPDATE: all three filters ---
             if t + 1 < T_len:
                 innovation = m_k_real[t + 1] - m_k_pred[t + 1]
-                # Innovation covariance: S = H² · P + R
-                S_k = H_k**2 * P_k + R_k
-                # Kalman gain: K = H · P / S
-                K_gain = np.where(S_k > 1e-10, H_k * P_k / S_k, 0.0)
-                # State update: f_k ← f_k + K · innovation
-                f_k_est += K_gain * innovation
-                # Covariance update: P ← (1 - K·H) · P + Q
-                P_k = (1.0 - K_gain * H_k) * P_k + Q_k
+                deviation = m_k_real[t] - m_eq_t
+
+                # Filter 1: f_k (linear KF)
+                H_f = np.where(mu_t > 1e-10, rw_t / mu_t, 0.0)
+                S_f = H_f**2 * P_f + R_obs
+                K_f = np.where(S_f > 1e-10, H_f * P_f / S_f, 0.0)
+                f_k_est += K_f * innovation
+                P_f = (1.0 - K_f * H_f) * P_f + Q_f
+
+                # Filter 2: α_k (EKF — Jacobian: ∂m/∂α = -(λ^s/γ)·m[t])
+                H_alpha = -(lam_s / max(gamma_est, 0.5)) * m_k_real[t]
+                S_alpha = H_alpha**2 * P_alpha + R_obs
+                K_alpha = np.where(S_alpha > 1e-10, H_alpha * P_alpha / S_alpha, 0.0)
+                alpha_k_est += K_alpha * innovation
+                alpha_k_est = np.clip(alpha_k_est, 0.001, 0.1)  # physical bounds
+                P_alpha = (1.0 - K_alpha * H_alpha) * P_alpha + Q_alpha
+
+                # Filter 3: γ (EKF — Jacobian: ∂m/∂γ = (1/γ²)·(v + μ·(m-m_eq)))
+                g2 = max(gamma_est, 0.5) ** 2
+                H_gamma_per_mode = (spectral_velocity[t] + mu_t * deviation) / g2
+                # γ is scalar: sum the per-mode sensitivities (weighted by innovation)
+                H_gamma = float(np.sum(H_gamma_per_mode * innovation)) / (np.sum(innovation**2) + 1e-10)
+                innov_gamma = float(np.mean(innovation * H_gamma_per_mode))
+                S_gamma = H_gamma**2 * P_gamma + R_obs
+                K_gamma = H_gamma * P_gamma / (S_gamma + 1e-10)
+                gamma_est += K_gamma * innov_gamma
+                gamma_est = np.clip(gamma_est, 0.5, 30.0)  # physical bounds
+                P_gamma = (1.0 - K_gamma * H_gamma) * P_gamma + Q_gamma
+
                 # Diagnostics
-                K_accum += np.abs(K_gain)
+                K_f_accum += np.abs(K_f)
                 n_updates += 1
 
-        # Store adapted f_k and diagnostics
+        # Store adapted parameters
         self.f_k_adapted = f_k_est
-        self.kalman_gain_avg = K_accum / max(n_updates, 1)
+        self.alpha_adapted = alpha_k_est
+        self.gamma_adapted = float(gamma_est)
+        self.kalman_gain_avg = K_f_accum / max(n_updates, 1)
+
+        # Update engine params with Kalman posteriors (for z-score computation)
+        self.alpha = float(np.median(alpha_k_est))
+        self.gamma = float(gamma_est)
 
         # Spectral residuals
         self.spectral_res = m_k_real - m_k_pred
