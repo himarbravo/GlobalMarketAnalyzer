@@ -149,8 +149,57 @@ python tests/historical_tests.py
 - Dimensional corrections Ω(t) (debt + rate + FX coupling)
 - International macro indicators (ECB, BoJ, PMI, GDP)
 - Expanded universe (13 banks, ~80 tickers across 4 zones)
+- **Bayesian adaptation**: 3 parallel filters in solve():
+  - KF for f_k (source, linear)
+  - EKF for α_k (diffusion, per-mode Jacobian)
+  - EKF for γ (inertia, global Jacobian)
 
-### Next
-- Bayesian adaptation: Kalman filter to correct f(t) from prediction errors
-- Parameter optimization: grid search over β_fx, η, β_r with Sharpe ratio
-- Backtest: multi-currency hierarchical vs single-USD flat graph
+### Diagnostic: Where Alpha Comes From
+
+| Source | Contribution | Evidence |
+|---|---|---|
+| **Multi-zone graph** | ~73% | Trial 1 (intl) Sharpe=2.37 vs Trial 3 (US only) Sharpe=-0.23 |
+| **EKF adaptation** | ~22% | Sharpe 0.20→0.47 from Bayesian filters |
+| **γ calibration** | ~5% | Marginal improvement when momentum detected |
+| **Equation itself** | ~0% | EMH: market already prices equilibrium dynamics |
+
+Alpha lives in **cross-zone latency** (days-weeks to arbitrage between jurisdictions), not in intra-zone dynamics (milliseconds, already arbed by HFT).
+
+### 🔴 Current Weaknesses
+
+1. **1 of 3 trials works** — model only generates alpha with multi-zone diversification
+2. **9 trades in 289 days** — Z_ENTRY=1.5 too restrictive, need ~200 trades/year
+3. **No crisis data** — only 2025-2026 (bull market), no bear market validation
+4. **Composite strategy loses money** — weights 0.4z/0.3F/0.3δ are arbitrary
+5. **10bps cost model** — real-world slippage, spread, market impact not included
+
+### Next: Alpha Increase Roadmap (Priority Order)
+
+**P0 — Graph expansion (biggest alpha driver)**
+- [ ] 20-25 tickers per zone (currently EUR=13, ASIA=10, EM=8)
+- [ ] Sub-zones (Nordics, MENA, Latam) for finer cross-zone gradients
+- [ ] Cross-zone explicit edges (BoJ → TLT, sovereign wealth fund flows)
+- [ ] Non-US yields (Bund 10Y, JGB 10Y) as per-zone signals
+
+**P1 — Trading strategy calibration**
+- [ ] Adaptive Z_ENTRY (lower in bull, higher in crisis) → more trades
+- [ ] Optimize composite weights via walk-forward Sharpe maximization
+- [ ] Position sizing (Kelly criterion) and stop losses
+- [ ] Realistic cost model with spread + slippage
+
+**P2 — Information edge in f(t)**
+- [ ] NLP sentiment from central bank speeches (predict rate decisions)
+- [ ] Alternative data: satellite (ports, factories), web traffic
+- [ ] Real-time credit spreads (IG/HY) for faster regime detection than VIX
+- [ ] Earnings whisper consensus vs surprise for S_earnings
+
+**P3 — Extended Bayesian adaptation**
+- [ ] UKF for s (fractional exponent, highly nonlinear λ^s)
+- [ ] Joint EKF state vector [f, α, γ, s] with full covariance
+- [ ] Online learning: persist Kalman state across daily runs
+
+**P4 — Validation**
+- [ ] Paper trading: 6 months of live signals without execution
+- [ ] Crisis backtest: COVID Mar 2020, Fed 2022, Volmageddon 2018
+- [ ] Cross-validation: train 2020-2023, test 2024-2026 and vice versa
+
