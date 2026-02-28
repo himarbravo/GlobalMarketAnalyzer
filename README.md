@@ -1,88 +1,123 @@
 # GlobalMarketAnalyzer
 
-Water-landscape model on a fractional graph with inertia, hierarchical monetary transmission, and dimensional fields.
+Water-landscape model on a hierarchical fractional graph with multi-currency monetary fields.
 
-## The Model
+## The Equation
 
-Three fundamental quantities, two equations, everything derived:
+$$\gamma \cdot m'' + m' = -\alpha \cdot L_z^s \cdot m + f_i(t) + \Omega_i(t) + v(t)$$
 
-```
-MONEY (m) ── the water that flows between investors on the graph
-  γ·d²m/dt² + dm/dt = -α·L^s·m + v(t) + f(t) + Ω(t)
-
-CAPITAL (K) ── the terrain, fixed at each company, changes slowly
-  dK/dt = g(t)  (CAPEX, R&D, depreciation, earnings, debt)
-
-PRICE (u) = λ·K = m ── the observable
-  λ = m/K ── valuation multiple (derived)
-```
-
-### Inertia (γ)
-The equation is **2nd order**: money has mass. γ=1 → classic O-U (no momentum), γ>1 → trends persist. γ is auto-calibrated via out-of-sample grid search.
-
-### Hierarchical Graph
-
-```
-╔══════════════════════════════════════════════════════╗
-║  DIMENSIONS (fields, modulate all nodes of a country) ║
-║                                                       ║
-║  Dim 1: Currency c(t)     DXY, EURUSD, USDJPY        ║
-║  Dim 2: Sovereign Debt    Debt/GDP ratio per country  ║
-║  Dim 3: Fed Rate r(t)     Central bank interest rate  ║
-║                                                       ║
-║  → Ω(t) = dc/dt·m - D/GDP·η·m - βr·dr/dt·m          ║
-╠══════════════════════════════════════════════════════╣
-║  DIRECTED GRAPH (2 levels, money creation channel)    ║
-║                                                       ║
-║  Banks →(lending)→ Companies                          ║
-║  Companies →(interest)→ Banks                         ║
-║                                                       ║
-║  Intra-level: ←→ correlation (undirected, as before)  ║
-╚══════════════════════════════════════════════════════╝
-```
-
-### Source Term f(t) — per role
-
-| Role | f(t) | Meaning |
+| Term | What it does | Updates |
 |---|---|---|
-| `bank` | NIM × lending volume | Banks create money via loans |
-| `productive` | (dK/dt + credit - debt·r) × S(t) | Capital creation + loans - interest, × sentiment |
+| γ·m'' | **Inertia** — money has mass, trends persist | Auto-calibrated (grid search) |
+| -α·L_z^s·m | **Diffusion** — money flows between connected assets within zone z | α auto-calibrated, s adapts to regime |
+| f_i(t) | **Source** — injection/drain per node role | Recalculated each step |
+| Ω_i(t) | **Dimensions** — debt drag + interest rate + FX coupling | Per-country, per-role |
+| v(t) | **Macro velocity** — direction of global money flow | From macro indicators |
 
-**Signal**: δ = λ - λ_eq(regime). Overvalued if δ > 0, undervalued if δ < 0.
-
-## Architecture
+## Graph Structure
 
 ```
-┌──────────────────────── PIPELINE ──────────────────────────────┐
-│                                                                 │
-│  config.py              Constants, node roles, dimensions       │
-│  db/database_manager.py Supabase connection and queries         │
-│  db/data_ingestion.py   Price, macro, fundamental data loading  │
-│  db/fred_client.py      FRED API (CPI, yields, credit spread)  │
-│  db/schema.sql          Supabase table definitions              │
-│                                                                 │
-│  ┌──── CORE MODEL ─────────────────────────────────────────┐   │
-│  │  graph_builder.py       Multi-layer graph + directed     │   │
-│  │                         edges (banks↔companies)          │   │
-│  │                         + dimension loading              │   │
-│  │  fundamental_filter.py  Fundamental scores → S(t)        │   │
-│  │  capital_field.py       K(t) terrain from earnings       │   │
-│  │  heat_engine.py         2nd-order money equation solver  │   │
-│  │                         with inertia (γ) + dimensions    │   │
-│  │  inertia_detector.py    Phase space, mass, rotation      │   │
-│  │  perturbation_simulator.py  Shock propagation            │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  core/signal_generator.py   data → graph → solve → signals     │
-│  core/regime_calibrator.py  Historical calibration              │
-│                                                                 │
-│  ┌──── DIAGNOSTICS ────────────────────────────────────────┐   │
-│  │  tests/model_diagnostic.py    Tests 1-6                  │   │
-│  │  tests/model_diagnostic_v2.py Tests 7-11                 │   │
-│  │  tests/historical_tests.py    Walk-forward backtests     │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+╔═══════════════════════════════════════════════════════════════════════╗
+║  DIMENSIONS (external fields, affect all nodes)                      ║
+║                                                                      ║
+║  Ω_debt  = -η · D/GDP · m/252            (sovereign debt drain)     ║
+║  Ω_rate  = -β_r · dr/dt · m              (per central bank, ±role) ║
+║  Φ_FX    = β_fx · r_fx · m̄_other_zone   (FX coupling)             ║
+╠═══════════════════════════════════════════════════════════════════════╣
+║                                                                      ║
+║  ZONA USD (~50 nodos)       ║  ZONA EUR (~13 nodos)                 ║
+║  ┌─BANKS─┐  ┌─PRODUCTIVE─┐ ║  ┌─BANKS─┐  ┌─PRODUCTIVE─┐           ║
+║  │JPM BAC│  │AAPL NVDA   │ ║  │HSBC   │  │SAP  ASML   │           ║
+║  │GS  MS │  │TSLA TLT    │ ║  │BNP.PA │  │NVO  SIE    │           ║
+║  │WFC    │→→│GLD  BTC    │ ║  │SAN ING│→→│LVMHF TTE   │           ║
+║  └───────┘←←└────────────┘ ║  └───────┘←←│AZN  EWG    │           ║
+║  L_USD (retornos en USD)    ║  L_EUR (retornos en EUR)              ║
+║         ↕ EURUSD                    ↕ USDJPY                        ║
+╠═══════════════════════════════════════════════════════════════════════╣
+║  ZONA ASIA (~10 nodos)      ║  ZONA EM (~8 nodos)                  ║
+║  ┌─BANKS─┐  ┌─PRODUCTIVE─┐ ║  ┌─BANKS─┐  ┌─PRODUCTIVE─┐           ║
+║  │MUFG   │  │TSM  SONY   │ ║  │ITUB   │  │VALE EWZ    │           ║
+║  │SMFG   │→→│TM   BABA   │ ║  │HDB    │→→│PBR  INDA   │           ║
+║  └───────┘←←│EWJ  FXI    │ ║  └───────┘←←│EWT         │           ║
+║  L_ASIA (moneda local)      ║  L_EM (moneda local)                  ║
+╚═══════════════════════════════════════════════════════════════════════╝
+  →→ = lending (bank creates money)    ←← = interest (company pays back)
+  ←→ = correlation (undirected)        ↕  = FX coupling between zones
 ```
+
+## Step-by-Step: How the Solver Works
+
+### Step 1 — Load Data
+- **Trigger**: `signal_generator.py` daily run
+- **Input**: Supabase tables (prices, fundamentals, macro_indicators)
+- **Output**: Prices, volumes, macro series, fundamental scores
+
+### Step 2 — Build Graph (`graph_builder.py`)
+- Compute **local-currency returns** (SAP in EUR, TSM in TWD proxy)
+- Calculate **cross-lag correlation** at 3 scales (20d, 60d, 120d)
+- Build **adjacency matrix W** with volume weighting + 2nd/3rd order neighbors
+- Assign **node roles** (bank/productive), **countries**, **zones**
+- Build **directed edges** (bank → company lending, company → bank interest)
+- Compute **Laplacian L per zone** and eigendecomposition
+- Calibrate **s(t)** from VIX, credit spreads, copper, oil, DXY
+
+### Step 3 — Compute Capital Field (`capital_field.py`)
+- Load quarterly fundamentals (FCF, CAPEX, ROIC, debt, growth)
+- Calculate **dK/dt** = change in capital per quarter
+- Include **delta_debt** (net new borrowing = money creation proxy)
+- Interpolate to daily: `capital_rate_daily = dK/dt / 252`
+
+### Step 4 — Compute Sentiment (`fundamental_filter.py`)
+- **S_fund** ∈ [0.5, 2.0]: from 7-component fundamental score (quarterly)
+- **S_macro** ∈ [0.7, 1.3]: from PMI of ticker's country (monthly)
+- **S_fear** ∈ [0.6, 1.2]: from VIX (daily)
+- **S_earnings** ∈ [0.8, 1.2]: from eps_surprise, decays over 20 days
+- **S_composite = S_fund × S_macro × S_fear × S_earnings**
+
+### Step 5 — Compute Dynamic f(t) (`heat_engine.py`)
+- **Banks**: `f = yield_spread × lending_capacity × S`
+- **Productive**: `f = (dK/dt + credit_in - interest_out) × S`
+
+### Step 6 — Compute Dimensional Corrections Ω(t) (`heat_engine.py`)
+- **Sovereign debt**: `Ω_debt = -η × D/GDP × m / 252` (slow constant drain)
+- **Interest rate** (per country's central bank):
+  - Banks: `Ω = +β_r_bank × dr/dt × m` (gain from rate hikes)
+  - Companies: `Ω = -β_r_prod × (1+leverage) × dr/dt × m` (suffer)
+- **FX coupling**: when EUR/USD rises → capital flows from USD zone to EUR zone
+
+### Step 7 — Solve 2nd-Order Equation (`heat_engine.py`)
+- Project everything to **spectral space** (eigenvectors of L_z)
+- Shift equilibrium by Ω: `m_eq += Ω_k / μ_k`
+- For each timestep: `m[t+1] = m[t] + momentum × v[t] - restoring × (m[t] - m_eq)`
+- Back to physical space: `m_pred = m_k_pred @ Φ^T`
+
+### Step 8 — Generate Signals
+- **δ = m_pred - m_real**: positive → overvalued (SELL), negative → undervalued (BUY)
+- Combine with technical indicators, regime classification
+- Output: BUY/SELL/HOLD with confidence score
+
+## Regime Adaptation
+
+The equation is the same in all regimes. What changes are the **parameters**:
+
+| Parameter | Bull (VIX~15) | Stress (VIX~30) | Crisis (VIX~45) |
+|---|---|---|---|
+| s (diffusion reach) | ~0.9 (local) | ~0.5 (regional) | ~0.2 (global panic) |
+| α (diffusion speed) | ~0.02 (slow) | ~0.04 (medium) | ~0.06 (fast) |
+| γ (inertia) | ~10 (trends) | ~3 (reduced) | ~1 (no momentum) |
+| S_fear (via VIX) | ~1.1 (confident) | ~0.9 (cautious) | ~0.7 (scared) |
+
+## Parameters
+
+| Parameter | Value | Calibrated? | Meaning |
+|---|---|---|---|
+| α | ~0.02 | ✅ OOS | Diffusion speed |
+| γ | ~5 | ✅ Grid search | Inertia / momentum |
+| s | ~0.8 | ✅ Daily (VIX) | Fractional exponent |
+| β_fx | 0.30 | ❌ Fixed | FX flow elasticity |
+| η | 0.02 | ❌ Fixed | Sovereign debt weight |
+| β_r_bank | -0.50 | ❌ Fixed | Bank rate sensitivity |
+| β_r_prod | +0.30 | ❌ Fixed | Company rate sensitivity |
 
 ## Execution
 
@@ -108,13 +143,14 @@ python tests/historical_tests.py
 ## Roadmap
 
 ### ✅ Implemented
-- **Inertia (γ)**: 2nd-order equation, auto-calibrated
-- **Hierarchical graph**: 2 roles (bank/productive), directed edges
-- **Dynamic f(t)**: role-dependent source term with S(t) sentiment
-- **Multi-currency fields**: 4 zones (USD, EUR, ASIA, EM) with local-currency returns
-- **Dimensional corrections Ω(t)**: sovereign debt drag, role-dependent Fed rate, FX coupling
+- Inertia (γ), hierarchical graph, directed edges
+- Dynamic f(t) per role, composite sentiment S(t)
+- Multi-currency fields (4 zones, local returns, per-zone Laplacians)
+- Dimensional corrections Ω(t) (debt + rate + FX coupling)
+- International macro indicators (ECB, BoJ, PMI, GDP)
+- Expanded universe (13 banks, ~80 tickers across 4 zones)
 
 ### Next
-- **Bayesian adaptation**: Kalman filter to correct f(t) based on prediction errors
-- **Parameter optimization**: grid search over α, γ, η, β_fx with Sharpe ratio loss
-- **Backtest**: multi-currency hierarchical vs single-USD flat graph
+- Bayesian adaptation: Kalman filter to correct f(t) from prediction errors
+- Parameter optimization: grid search over β_fx, η, β_r with Sharpe ratio
+- Backtest: multi-currency hierarchical vs single-USD flat graph
