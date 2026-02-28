@@ -46,7 +46,12 @@ TICKERS = {
     "REAL_ESTATE":   ["PLD", "AMT", "EQIX"],
     "INTL_DEV":      ["EWG", "EWJ", "EWU", "EWC"],
     "INTL_EM":       ["FXI", "INDA", "EWZ", "EWT"],
-    "INTL_STOCKS":   ["BABA", "SAP", "NVO"],
+    "INTL_STOCKS":   ["BABA", "SAP", "NVO", "LVMHF", "TTE", "SIE", "AZN",
+                      "SONY", "TM"],
+    "INTL_BANKS":    ["HSBC", "BNP.PA", "SAN", "ING",      # EUR banks
+                      "MUFG", "SMFG",                      # JP banks
+                      "ITUB", "HDB"],                       # EM banks
+    "INTL_INDUSTRY": ["VALE", "PBR"],                       # EM industry
     "CRYPTO":        ["BTC-USD", "ETH-USD"],
     "BONDS_GOVT":    ["TLT", "IEF", "SHY"],
     "BONDS_CORP":    ["LQD", "HYG"],
@@ -74,27 +79,49 @@ ETF_TICKERS = set(
     TICKERS["COMMODITIES"]
 )
 
+ASSET_TYPE_MAP.update({
+    "LVMHF": "equity", "TTE": "equity", "SIE": "equity",
+    "AZN": "equity", "SONY": "equity", "TM": "equity",
+    "HSBC": "equity", "BNP.PA": "equity", "SAN": "equity", "ING": "equity",
+    "MUFG": "equity", "SMFG": "equity",
+    "ITUB": "equity", "HDB": "equity", "VALE": "equity", "PBR": "equity",
+})
+
 
 # ─── GRAFO JERÁRQUICO: ROLES + DIMENSIONES ──────────────────────────────────
 
 # Nodos bancarios: crean dinero vía préstamos (f_bank = NIM × lending)
 NODE_ROLES = {
+    # US banks
     "JPM": "bank", "BAC": "bank", "GS": "bank", "MS": "bank", "WFC": "bank",
+    # EUR banks
+    "HSBC": "bank", "BNP.PA": "bank", "SAN": "bank", "ING": "bank",
+    # JP banks
+    "MUFG": "bank", "SMFG": "bank",
+    # EM banks
+    "ITUB": "bank", "HDB": "bank",
 }
 # Todo ticker NO listado aquí → role = "productive"
 
 # País de cotización/exposición de cada ticker no-US
 TICKER_COUNTRY = {
+    # China
     "BABA": "CN", "FXI": "CN",
-    "SAP": "DE", "EWG": "DE",
+    # Europe
+    "SAP": "DE", "EWG": "DE", "SIE": "DE",
     "NVO": "DK",
+    "ASML": "NL", "ING": "NL",
+    "EWU": "UK", "HSBC": "UK", "AZN": "UK",
+    "BNP.PA": "FR", "LVMHF": "FR", "TTE": "FR",
+    "SAN": "ES",
+    # Asia
     "TSM": "TW", "EWT": "TW",
-    "EWJ": "JP",
-    "EWZ": "BR",
-    "EWU": "UK",
+    "EWJ": "JP", "MUFG": "JP", "SMFG": "JP", "SONY": "JP", "TM": "JP",
+    # Americas (non-US)
     "EWC": "CA",
-    "INDA": "IN",
-    "ASML": "NL",
+    # Emerging Markets
+    "EWZ": "BR", "ITUB": "BR", "VALE": "BR", "PBR": "BR",
+    "INDA": "IN", "HDB": "IN",
 }
 # Todo ticker NO listado aquí → country = "US"
 
@@ -104,7 +131,8 @@ TICKER_COUNTRY = {
 # Tickers se asignan a la zona de su país (via TICKER_COUNTRY)
 COUNTRY_TO_ZONE = {
     "US": "USD", "CA": "USD",       # Norteamérica dolarizada
-    "DE": "EUR", "NL": "EUR", "DK": "EUR", "UK": "EUR",  # Europa
+    "DE": "EUR", "NL": "EUR", "DK": "EUR", "UK": "EUR",
+    "FR": "EUR", "ES": "EUR",       # Europa
     "JP": "ASIA", "CN": "ASIA", "TW": "ASIA",            # Asia
     "BR": "EM", "IN": "EM",                               # Emergentes
 }
@@ -123,6 +151,7 @@ SOVEREIGN_DEBT_GDP = {
     "US": 1.20, "JP": 2.60, "DE": 0.65, "NL": 0.50,
     "CN": 0.80, "TW": 0.30, "DK": 0.35, "UK": 1.00,
     "BR": 0.75, "IN": 0.85, "CA": 0.65,
+    "FR": 1.10, "ES": 1.05,
 }
 
 # Dim 3: Tipos de interés por banco central (FRED series)
@@ -157,7 +186,8 @@ INTL_MACRO_SERIES = {
 # Mapeo: país → serie de tipo de interés de su banco central
 COUNTRY_RATE_SERIES = {
     "US": "FEDFUNDS", "CA": "FEDFUNDS",     # USD zone
-    "DE": "ECBDFR", "NL": "ECBDFR", "DK": "ECBDFR",  # EUR zone
+    "DE": "ECBDFR", "NL": "ECBDFR", "DK": "ECBDFR",
+    "FR": "ECBDFR", "ES": "ECBDFR",          # EUR zone
     "JP": "IRSTCI01JPM156N",                 # Asia zone
     "UK": "IUDSOIA",                         # UK
     "CN": "FEDFUNDS", "TW": "FEDFUNDS",     # proxy: USD-linked
@@ -180,6 +210,7 @@ COUNTRY_CURRENCY = {
     "US": "dxy", "JP": "usdjpy", "DE": "eurusd", "NL": "eurusd",
     "DK": "eurusd", "UK": "gbpusd", "CN": "dxy", "TW": "dxy",
     "BR": "dxy", "IN": "dxy", "CA": "dxy",
+    "FR": "eurusd", "ES": "eurusd",
 }
 
 
