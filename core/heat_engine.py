@@ -249,6 +249,87 @@ class HeatEngine:
 
         return np.nan_to_num(f, nan=0.0, posinf=0.0, neginf=0.0)
 
+    def _compute_dim_corrections(self, m_current: np.ndarray) -> np.ndarray:
+        """
+        Computes dimensional corrections Ω(t) + FX coupling Φ(t).
+
+        Ω_i = -η · (D/GDP) · m_i/252          (sovereign debt drag)
+              - β_r · (dr_FED/dt) · m_i        (rate effect, role-dependent)
+
+        Φ_i = β_fx · r_fx · m̄_other_zone      (FX coupling between zones)
+        """
+        import config as cfg
+
+        omega = np.zeros(self.N)
+        params = cfg.DIM_PARAMS
+
+        # --- Debt drag: constant slow drain proportional to D/GDP ---
+        countries = self.gb.node_countries if hasattr(self.gb, 'node_countries') else ['US'] * self.N
+        for i in range(self.N):
+            d_gdp = cfg.SOVEREIGN_DEBT_GDP.get(countries[i], 1.0)
+            omega[i] -= params['eta_debt'] * d_gdp * m_current[i] / 252.0
+
+        # --- Fed rate effect: role-dependent ---
+        fed_rate = self.gb.dimensions.get('fed_rate', pd.Series(dtype=float))
+        dr_dt = 0.0
+        if isinstance(fed_rate, pd.Series) and len(fed_rate) >= 2:
+            # Rate change per day (last 20 days, smoothed)
+            r_diff = fed_rate.diff().tail(20).mean()
+            if pd.notna(r_diff):
+                dr_dt = float(r_diff) / 100.0  # convert from % to fraction
+
+        if abs(dr_dt) > 1e-8:
+            roles = self.gb.node_roles if hasattr(self.gb, 'node_roles') else ['productive'] * self.N
+            for i in range(self.N):
+                if roles[i] == 'bank':
+                    # Banks gain from rate hikes (NIM widens)
+                    omega[i] += params['beta_r_bank'] * dr_dt * m_current[i]
+                else:
+                    # Companies suffer, more if leveraged
+                    lev = 1.0  # default leverage
+                    if self.capital_field is not None:
+                        d2e = self.capital_field.capital_rate.get(self.tickers[i], 0)
+                        # crude leverage proxy from capital_rate sign
+                        lev = 1.0 + max(0, -d2e)  # negative K growth = leveraged stress
+                    omega[i] -= params['beta_r_prod'] * lev * dr_dt * m_current[i]
+
+        # --- FX coupling: flow between zones ---
+        fx_returns = self.gb.dimensions.get('fx_returns', {})
+        zones = self.gb.node_zones if hasattr(self.gb, 'node_zones') else ['USD'] * self.N
+        zone_indices = self.gb.currency_zones if hasattr(self.gb, 'currency_zones') else {}
+
+        for (zone_a, zone_b), r_fx_series in fx_returns.items():
+            if len(r_fx_series) == 0:
+                continue
+            # Last FX return
+            r_fx_last = float(r_fx_series.iloc[-1]) if pd.notna(r_fx_series.iloc[-1]) else 0.0
+
+            if abs(r_fx_last) < 1e-8:
+                continue
+
+            # Mean m in zone_a (capital available to flow)
+            idx_a = zone_indices.get(zone_a, [])
+            m_bar_a = np.mean(m_current[idx_a]) if idx_a else 0.0
+
+            # Mean m in zone_b
+            idx_b = zone_indices.get(zone_b, [])
+            m_bar_b = np.mean(m_current[idx_b]) if idx_b else 0.0
+
+            # FX_PAIRS sign convention: positive sign = zone_a strengthens
+            fx_info = cfg.FX_PAIRS.get((zone_a, zone_b), {})
+            sign = fx_info.get('sign', 1)
+
+            # Flow: when zone_a's currency strengthens, money flows FROM zone_b TO zone_a
+            flow = params['beta_fx'] * sign * r_fx_last
+
+            # Apply: zone_a gains, zone_b loses
+            for i in idx_a:
+                omega[i] += flow * m_bar_b / max(len(idx_a), 1)
+            for i in idx_b:
+                omega[i] -= flow * m_bar_a / max(len(idx_b), 1)
+
+        return np.nan_to_num(omega, nan=0.0, posinf=0.0, neginf=0.0)
+
     def solve(self, calibrate: bool = True):
         """
         Solve the water-landscape model with INERTIA (2nd order):
@@ -317,6 +398,13 @@ class HeatEngine:
 
         # Equilibrium per mode: m_eq_k = f_k / μ_k
         m_eq = np.where(mu > 1e-10, f_k / mu, 0.0)
+
+        # Dimensional corrections Ω(t): debt drag + Fed rate + FX coupling
+        # Computed in physical space, then projected to spectral
+        omega_phys = self._compute_dim_corrections(m[-1])  # use last known m
+        omega_k = Phi.T @ omega_phys
+        # Ω shifts the equilibrium: m_eq_k += Ω_k / μ_k
+        m_eq += np.where(mu > 1e-10, omega_k / mu, 0.0)
 
         # Inertia coefficients (derived from γ)
         gamma = self.gamma

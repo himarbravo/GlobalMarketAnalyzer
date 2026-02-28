@@ -98,19 +98,24 @@ TICKER_COUNTRY = {
 }
 # Todo ticker NO listado aquí → country = "US"
 
-# Dim 1: Divisa por país → campo en macro_indicators
-COUNTRY_CURRENCY = {
-    "US": "dxy",       # Dollar Index
-    "JP": "usdjpy",    # USD/JPY (inverso: sube = yen débil)
-    "DE": "eurusd",    # EUR/USD
-    "NL": "eurusd",
-    "DK": "eurusd",    # proxy (corona pegada al EUR)
-    "UK": "gbpusd",    # GBP/USD
-    "CN": "dxy",       # proxy (yuan semi-controlado)
-    "TW": "dxy",       # proxy
-    "BR": "dxy",       # proxy
-    "IN": "dxy",       # proxy
-    "CA": "dxy",       # proxy (CAD correlaciona con USD)
+# ─── CAMPOS MONETARIOS POR DIVISA ────────────────────────────────────────────
+
+# Zonas monetarias: cada zona tiene su propio Laplaciano y campo m
+# Tickers se asignan a la zona de su país (via TICKER_COUNTRY)
+COUNTRY_TO_ZONE = {
+    "US": "USD", "CA": "USD",       # Norteamérica dolarizada
+    "DE": "EUR", "NL": "EUR", "DK": "EUR", "UK": "EUR",  # Europa
+    "JP": "ASIA", "CN": "ASIA", "TW": "ASIA",            # Asia
+    "BR": "EM", "IN": "EM",                               # Emergentes
+}
+# Todo país no listado → "USD"
+
+# Pares FX entre zonas: campo en macro_indicators + convención de signo
+# sign: +1 si FX sube = moneda zona se fortalece, -1 si FX sube = se debilita
+FX_PAIRS = {
+    ("USD", "EUR"):  {"column": "eurusd",  "sign": -1},  # EURUSD sube → USD débil
+    ("USD", "ASIA"): {"column": "usdjpy",  "sign": +1},  # USDJPY sube → USD fuerte vs Asia
+    ("USD", "EM"):   {"column": "dxy",     "sign": +1},  # DXY sube → USD fuerte vs EM
 }
 
 # Dim 2: Deuda soberana / PIB (ratio, fuente: FMI 2024)
@@ -120,8 +125,23 @@ SOVEREIGN_DEBT_GDP = {
     "BR": 0.75, "IN": 0.85, "CA": 0.65,
 }
 
-# Dim 3: Tipo de interés base → FRED series ID
-FED_RATE_SERIES = "FEDFUNDS"  # Federal Funds Effective Rate (mensual)
+# Dim 3: Tipo de interés base
+FED_RATE_SERIES = "FEDFUNDS"
+
+# Parámetros de correcciones dimensionales (calibrables)
+DIM_PARAMS = {
+    "beta_fx":      0.30,    # elasticidad flujo FX entre zonas
+    "eta_debt":     0.02,    # peso drenaje deuda soberana
+    "beta_r_bank":  -0.50,   # bancos ganan con subida tipos (negativo)
+    "beta_r_prod":  0.30,    # empresas sufren (positivo, ×(1+leverage))
+}
+
+# Dim 1: Divisa por país → campo en macro_indicators (legacy, para graph_builder)
+COUNTRY_CURRENCY = {
+    "US": "dxy", "JP": "usdjpy", "DE": "eurusd", "NL": "eurusd",
+    "DK": "eurusd", "UK": "gbpusd", "CN": "dxy", "TW": "dxy",
+    "BR": "dxy", "IN": "dxy", "CA": "dxy",
+}
 
 
 def get_all_tickers() -> list:
@@ -157,6 +177,12 @@ def get_node_role(ticker: str) -> str:
 def get_country(ticker: str) -> str:
     """País de exposición principal del ticker."""
     return TICKER_COUNTRY.get(ticker, "US")
+
+
+def get_zone(ticker: str) -> str:
+    """Zona monetaria del ticker: 'USD', 'EUR', 'ASIA', 'EM'."""
+    country = get_country(ticker)
+    return COUNTRY_TO_ZONE.get(country, "USD")
 
 
 # ─── INDICADORES TÉCNICOS ─────────────────────────────────────────────────────

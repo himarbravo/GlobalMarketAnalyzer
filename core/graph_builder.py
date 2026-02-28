@@ -77,15 +77,21 @@ class GraphBuilder:
         # ── Grafo jerárquico ──
         self.node_roles: list[str] = []    # 'bank' | 'productive' por nodo
         self.node_countries: list[str] = []  # 'US', 'JP', etc. por nodo
+        self.node_zones: list[str] = []      # 'USD', 'EUR', 'ASIA', 'EM'
         self.bank_indices: list[int] = []    # índices de nodos bancarios
         self.prod_indices: list[int] = []    # índices de nodos productivos
+        self.currency_zones: dict = {}       # zone_id → [indices]
 
         # Dimensiones (campos que modulan todos los nodos)
         self.dimensions: dict = {
             'currency': {},        # país → pd.Series de divisa c(t)
             'fed_rate': pd.Series(dtype=float),  # r(t) tipo FED
             'sovereign_debt': {},  # país → ratio deuda/PIB
+            'fx_returns': {},      # (zone_a, zone_b) → pd.Series de retorno FX
         }
+
+        # Per-zone Laplacians (campos monetarios separados)
+        self.zone_laplacians: dict = {}     # zone → {L, eigenvalues, eigenvectors, L_s}
 
         # Sectores dinámicos (cargados de assets table)
         self.sector_map: dict = {}   # ticker → sector
@@ -132,11 +138,17 @@ class GraphBuilder:
         self.tickers = sorted(asset_info.keys())
         self.N = len(self.tickers)
 
-        # ── Clasificar nodos por rol y país ──
+        # ── Clasificar nodos por rol, país y zona monetaria ──
         self.node_roles = [config.get_node_role(t) for t in self.tickers]
         self.node_countries = [config.get_country(t) for t in self.tickers]
+        self.node_zones = [config.get_zone(t) for t in self.tickers]
         self.bank_indices = [i for i, r in enumerate(self.node_roles) if r == 'bank']
         self.prod_indices = [i for i, r in enumerate(self.node_roles) if r == 'productive']
+
+        # Agrupar índices por zona monetaria
+        self.currency_zones = {}
+        for i, z in enumerate(self.node_zones):
+            self.currency_zones.setdefault(z, []).append(i)
 
         # --- Precios (close) ---
         self.prices = self.db.get_prices_multi(
@@ -315,12 +327,17 @@ class GraphBuilder:
     # ─────────────────────────────────────────────────────────────
 
     def _compute_real_returns(self):
-        """Log retornos deflactados por inflación."""
+        """
+        Log retornos en MONEDA LOCAL, deflactados por inflación.
+
+        Para cada ticker en zona no-USD:
+          r_local = r_usd - r_fx
+        Esto elimina el ruido FX de las correlaciones.
+        """
         # Forzar float64 — Supabase puede devolver columnas como object
         prices_f = self.prices.apply(pd.to_numeric, errors="coerce").astype(np.float64)
 
-        # NO usar .dropna() — eliminaría filas donde cualquier
-        # ticker tiene NaN. pandas.corr() maneja NaN pairwise.
+        # Log retornos nominales (en USD, como vienen de yfinance)
         log_ret = np.log(prices_f / prices_f.shift(1))
         log_ret = log_ret.iloc[1:]  # quitar primera fila (NaN por shift)
 
@@ -330,8 +347,47 @@ class GraphBuilder:
         # Deflactar: r_real = r_nominal - π
         self.returns = log_ret.sub(pi, axis=0)
 
-        # Temperaturas acumuladas (capital real)
-        self.u = self.returns.fillna(0).cumsum().values.astype(np.float64)
+        # ── Convertir a retornos en moneda local ──
+        # Para tickers no-USD: restar el retorno FX para aislar
+        # el movimiento del activo en su propia moneda
+        self.returns_local = self.returns.copy()
+
+        for zone_pair, fx_info in config.FX_PAIRS.items():
+            col = fx_info['column']
+            sign = fx_info['sign']
+            zone_a, zone_b = zone_pair  # e.g. ("USD", "EUR")
+
+            # Buscar serie FX en dimensions
+            fx_series = self.dimensions['currency'].get(
+                next((c for c, cc in config.COUNTRY_CURRENCY.items()
+                      if cc == col), None), None
+            )
+            if fx_series is None and col in ['dxy', 'eurusd', 'usdjpy']:
+                # Intentar directamente desde atributos macro
+                if col == 'dxy' and len(self.dxy) > 0:
+                    fx_series = self.dxy
+                elif col == 'eurusd' and 'eurusd' in self.dimensions.get('currency', {}):
+                    fx_series = self.dimensions['currency'].get('DE')
+                elif col == 'usdjpy' and 'usdjpy' in self.dimensions.get('currency', {}):
+                    fx_series = self.dimensions['currency'].get('JP')
+
+            if fx_series is not None and len(fx_series) > 1:
+                # Log retorno del FX
+                r_fx = np.log(fx_series / fx_series.shift(1)).dropna()
+                r_fx = r_fx.reindex(self.returns.index).ffill().fillna(0)
+
+                # Almacenar para acoplamiento FX en heat_engine
+                self.dimensions['fx_returns'][zone_pair] = r_fx
+
+                # Ajustar retornos de tickers de la zona no-USD
+                target_zone = zone_b
+                for i, ticker in enumerate(self.tickers):
+                    if self.node_zones[i] == target_zone and ticker in self.returns_local.columns:
+                        # r_local = r_usd - sign * r_fx
+                        self.returns_local[ticker] -= sign * r_fx
+
+        # Temperaturas acumuladas (capital real, en moneda local)
+        self.u = self.returns_local.fillna(0).cumsum().values.astype(np.float64)
 
     # ─────────────────────────────────────────────────────────────
     # PASO 1: Construir correlación → Grafo → Laplaciano
@@ -447,6 +503,61 @@ class GraphBuilder:
         # ─── Calibrar s(t) y L^s ───
         self._calibrate_s(reference_date)
         self._compute_fractional_laplacian()
+
+        # ─── Per-zone Laplacians (campos monetarios separados) ───
+        self._build_zone_laplacians()
+
+    def _build_zone_laplacians(self):
+        """
+        Construye Laplacianos independientes por zona monetaria.
+
+        Cada zona usa un subgrafo extraído de W (solo nodos de esa zona).
+        El heat_engine resuelve la ecuación POR ZONA y las acopla via FX.
+        """
+        self.zone_laplacians = {}
+
+        for zone_id, indices in self.currency_zones.items():
+            n_z = len(indices)
+            if n_z < 2:
+                # Zona con 1 nodo: no hay Laplaciano, trivial
+                self.zone_laplacians[zone_id] = {
+                    'indices': indices,
+                    'tickers': [self.tickers[i] for i in indices],
+                    'L': np.zeros((1, 1)),
+                    'eigenvalues': np.array([0.0]),
+                    'eigenvectors': np.array([[1.0]]),
+                    'L_s': np.zeros((1, 1)),
+                }
+                continue
+
+            # Extraer submatriz W para esta zona
+            idx = np.array(indices)
+            W_zone = self.W[np.ix_(idx, idx)]
+
+            # Laplaciano de la zona
+            D_z = np.diag(np.abs(W_zone).sum(axis=1))
+            L_z = D_z - W_zone
+
+            # Eigendecomposition
+            evals, evecs = np.linalg.eigh(L_z)
+            evals = np.maximum(evals, 0.0)
+            sort_idx = np.argsort(evals)
+            evals = evals[sort_idx]
+            evecs = evecs[:, sort_idx]
+
+            # Laplaciano fraccional L_z^s
+            lam_s = np.power(evals, self.s)
+            lam_s[0] = 0.0  # conservación de capital
+            L_s_z = evecs @ np.diag(lam_s) @ evecs.T
+
+            self.zone_laplacians[zone_id] = {
+                'indices': indices,
+                'tickers': [self.tickers[i] for i in indices],
+                'L': L_z,
+                'eigenvalues': evals,
+                'eigenvectors': evecs,
+                'L_s': L_s_z,
+            }
 
     # ─────────────────────────────────────────────────────────────
     # CROSS-LAG CORRELATION
