@@ -439,6 +439,19 @@ def ingest_fred(db: DatabaseManager) -> int:
         "fed_rate":           "FEDFUNDS",        # Federal Funds Effective Rate
     }
 
+    # Add international macro series from config
+    try:
+        import config as cfg
+        # Central bank rates (ECB, BoJ, BoE)
+        for zone, series_id in cfg.CENTRAL_BANK_RATES.items():
+            field = f"rate_{zone.lower()}"
+            if field not in fred_fields:
+                fred_fields[field] = series_id
+        # International indicators (PMI, GDP, unemployment)
+        fred_fields.update(cfg.INTL_MACRO_SERIES)
+    except Exception:
+        pass  # config not available, use base fields only
+
     all_series = {}
     for field, series_id in fred_fields.items():
         try:

@@ -125,7 +125,46 @@ SOVEREIGN_DEBT_GDP = {
     "BR": 0.75, "IN": 0.85, "CA": 0.65,
 }
 
-# Dim 3: Tipo de interés base
+# Dim 3: Tipos de interés por banco central (FRED series)
+CENTRAL_BANK_RATES = {
+    "US": "FEDFUNDS",          # Federal Funds Rate
+    "EU": "ECBDFR",            # ECB Deposit Facility Rate
+    "JP": "IRSTCI01JPM156N",   # Japan Immediate Rate (call money)
+    "UK": "IUDSOIA",           # UK Sterling Overnight Rate
+}
+
+# Indicadores macro internacionales (FRED series)
+INTL_MACRO_SERIES = {
+    # PMI manufacturero (>50 = expansión, <50 = contracción)
+    "pmi_us":  "MANEMP",           # ISM Manufacturing Employment (proxy PMI)
+    "pmi_eu":  "BSCICP03EZM460S",  # EU Business Confidence (proxy PMI)
+    "pmi_jp":  "BSCICP03JPM460S",  # Japan Business Confidence
+    "pmi_cn":  "BSCICP03CNM460S",  # China Business Confidence
+    "pmi_uk":  "BSCICP03GBM460S",  # UK Business Confidence
+
+    # PIB crecimiento real (trimestral)
+    "gdp_us":  "A191RL1Q225SBEA",   # US Real GDP Growth (annualized)
+    "gdp_eu":  "CLVMNACSCAB1GQEA19", # Euro Area Real GDP
+    "gdp_jp":  "JPNRGDPEXP",        # Japan Real GDP
+    "gdp_uk":  "NAEXKP01GBQ189S",   # UK Real GDP
+
+    # Desempleo (mensual)
+    "unemp_us": "UNRATE",           # US Unemployment Rate
+    "unemp_eu": "LRHUTTTTEZM156S",  # Euro Area Unemployment
+    "unemp_jp": "LRHUTTTTJPM156S",  # Japan Unemployment
+}
+
+# Mapeo: país → serie de tipo de interés de su banco central
+COUNTRY_RATE_SERIES = {
+    "US": "FEDFUNDS", "CA": "FEDFUNDS",     # USD zone
+    "DE": "ECBDFR", "NL": "ECBDFR", "DK": "ECBDFR",  # EUR zone
+    "JP": "IRSTCI01JPM156N",                 # Asia zone
+    "UK": "IUDSOIA",                         # UK
+    "CN": "FEDFUNDS", "TW": "FEDFUNDS",     # proxy: USD-linked
+    "BR": "FEDFUNDS", "IN": "FEDFUNDS",     # proxy: USD-linked
+}
+
+# Legacy alias
 FED_RATE_SERIES = "FEDFUNDS"
 
 # Parámetros de correcciones dimensionales (calibrables)

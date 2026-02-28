@@ -269,29 +269,54 @@ class HeatEngine:
             d_gdp = cfg.SOVEREIGN_DEBT_GDP.get(countries[i], 1.0)
             omega[i] -= params['eta_debt'] * d_gdp * m_current[i] / 252.0
 
-        # --- Fed rate effect: role-dependent ---
+        # --- Interest rate effect: per-country, role-dependent ---
+        # Each node feels its OWN central bank's rate changes
+        roles = self.gb.node_roles if hasattr(self.gb, 'node_roles') else ['productive'] * self.N
+
+        # Pre-compute dr/dt per rate series (avoid recomputing for each node)
+        rate_changes = {}  # series_id → dr/dt
         fed_rate = self.gb.dimensions.get('fed_rate', pd.Series(dtype=float))
-        dr_dt = 0.0
         if isinstance(fed_rate, pd.Series) and len(fed_rate) >= 2:
-            # Rate change per day (last 20 days, smoothed)
             r_diff = fed_rate.diff().tail(20).mean()
             if pd.notna(r_diff):
-                dr_dt = float(r_diff) / 100.0  # convert from % to fraction
+                rate_changes['FEDFUNDS'] = float(r_diff) / 100.0
 
-        if abs(dr_dt) > 1e-8:
-            roles = self.gb.node_roles if hasattr(self.gb, 'node_roles') else ['productive'] * self.N
-            for i in range(self.N):
-                if roles[i] == 'bank':
-                    # Banks gain from rate hikes (NIM widens)
-                    omega[i] += params['beta_r_bank'] * dr_dt * m_current[i]
-                else:
-                    # Companies suffer, more if leveraged
-                    lev = 1.0  # default leverage
-                    if self.capital_field is not None:
-                        d2e = self.capital_field.capital_rate.get(self.tickers[i], 0)
-                        # crude leverage proxy from capital_rate sign
-                        lev = 1.0 + max(0, -d2e)  # negative K growth = leveraged stress
-                    omega[i] -= params['beta_r_prod'] * lev * dr_dt * m_current[i]
+        # Try to load other central bank rates from macro_indicators
+        try:
+            for zone, series_id in cfg.CENTRAL_BANK_RATES.items():
+                if series_id in rate_changes:
+                    continue
+                field = f"rate_{zone.lower()}"
+                r = self.ff.db.client.table("macro_indicators").select(
+                    f"date, {field}"
+                ).not_.is_(field, "null").order("date", desc=True).limit(20).execute()
+                if r.data and len(r.data) >= 2:
+                    vals = [float(row[field]) for row in r.data if row.get(field) is not None]
+                    if len(vals) >= 2:
+                        dr = (vals[0] - vals[-1]) / len(vals) / 100.0
+                        rate_changes[series_id] = dr
+        except Exception:
+            pass
+
+        # Apply rate effect per node using its country's central bank
+        for i in range(self.N):
+            country = countries[i]
+            series_id = cfg.COUNTRY_RATE_SERIES.get(country, 'FEDFUNDS')
+            dr_dt = rate_changes.get(series_id, 0.0)
+
+            if abs(dr_dt) < 1e-8:
+                continue
+
+            if roles[i] == 'bank':
+                # Banks gain from rate hikes (NIM widens)
+                omega[i] += params['beta_r_bank'] * dr_dt * m_current[i]
+            else:
+                # Companies suffer, more if leveraged
+                lev = 1.0
+                if self.capital_field is not None:
+                    d2e = self.capital_field.capital_rate.get(self.tickers[i], 0)
+                    lev = 1.0 + max(0, -d2e)
+                omega[i] -= params['beta_r_prod'] * lev * dr_dt * m_current[i]
 
         # --- FX coupling: flow between zones ---
         fx_returns = self.gb.dimensions.get('fx_returns', {})
