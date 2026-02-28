@@ -75,6 +75,12 @@ class HeatEngine:
         self.capital_flow: np.ndarray = np.array([])     # (T,) net capital in system
         self.refuge_signal: float = 0.0                  # [-1, +1] cuándo ir a refugio
 
+        # Kalman filter for f_k adaptation
+        self.kalman_Q: float = 0.001    # process noise: f changes slowly (quarterly fundamentals)
+        self.kalman_R: float = 0.01     # observation noise: daily returns are noisy
+        self.f_k_adapted: np.ndarray = np.array([])  # (N,) posterior f_k after Kalman
+        self.kalman_gain_avg: np.ndarray = np.array([])  # (N,) average Kalman gain per mode
+
         # Campo dual: mispricing δ(t) = u(t) - c(t)
         self.mispricing: np.ndarray = np.array([])       # (T, N) δ weighted by confidence
         self.capital_field = None                         # CapitalField instance
@@ -474,17 +480,60 @@ class HeatEngine:
 
         ADV_WEIGHT = 0.05
 
+        # ═══ KALMAN FILTER for f_k adaptation ═══
+        # State:       f_k[t+1] = f_k[t] + w,  w ~ N(0, Q)
+        # Observation:  m_k[t] = h(f_k) + v,   v ~ N(0, R)
+        # where h is linear: dm_pred/df_k = revert_weight / μ
+        #
+        # The filter updates f_k at each timestep so the equilibrium
+        # m_eq adapts to prediction errors the static f can't capture.
+        # Future: EKF for (α, γ), UKF for s — see README roadmap.
+        f_k_est = f_k.copy()                    # state estimate
+        P_k = np.ones(self.N) * 0.1             # state covariance per mode
+        Q_k = self.kalman_Q                     # process noise
+        R_k = self.kalman_R                     # observation noise
+        # Observation sensitivity: H_k = ∂m_pred/∂f_k = revert_weight / μ
+        H_k = np.where(mu > 1e-10, revert_weight / mu, 0.0)
+        # Track Kalman gain for diagnostics
+        K_accum = np.zeros(self.N)
+        n_updates = 0
+
+        # Ω equilibrium shift (static, from dimensional corrections)
+        omega_eq = np.where(mu > 1e-10, omega_k / mu, 0.0)
+
         for t in range(T_len - 1):
+            # --- PREDICT: use current f_k_est to compute m_eq ---
+            m_eq_t = np.where(mu > 1e-10, f_k_est / mu, 0.0) + omega_eq
+
             # Second-order prediction: position + inertia + restoring force
             m_k_pred[t + 1] = (
                 m_k_real[t]                                          # current position
                 + momentum_weight * spectral_velocity[t]             # inertia term
-                - revert_weight * (m_k_real[t] - m_eq)              # restoring force
+                - revert_weight * (m_k_real[t] - m_eq_t)            # restoring force
             )
 
             # Advection: macro velocity pushes money
             if t < len(v_spectral):
                 m_k_pred[t + 1] += ADV_WEIGHT * v_spectral[t]
+
+            # --- UPDATE: Kalman correction of f_k ---
+            if t + 1 < T_len:
+                innovation = m_k_real[t + 1] - m_k_pred[t + 1]
+                # Innovation covariance: S = H² · P + R
+                S_k = H_k**2 * P_k + R_k
+                # Kalman gain: K = H · P / S
+                K_gain = np.where(S_k > 1e-10, H_k * P_k / S_k, 0.0)
+                # State update: f_k ← f_k + K · innovation
+                f_k_est += K_gain * innovation
+                # Covariance update: P ← (1 - K·H) · P + Q
+                P_k = (1.0 - K_gain * H_k) * P_k + Q_k
+                # Diagnostics
+                K_accum += np.abs(K_gain)
+                n_updates += 1
+
+        # Store adapted f_k and diagnostics
+        self.f_k_adapted = f_k_est
+        self.kalman_gain_avg = K_accum / max(n_updates, 1)
 
         # Spectral residuals
         self.spectral_res = m_k_real - m_k_pred
