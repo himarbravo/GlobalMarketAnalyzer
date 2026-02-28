@@ -101,7 +101,7 @@ class HeatEngine:
         Phi = self.gb.eigenvectors
         lam_s = np.power(self.gb.eigenvalues, self.gb.s)
         lam_s[0] = 0.0
-        f_vec = np.nan_to_num(self.ff.get_source_vector(self.tickers))
+        f_vec = np.nan_to_num(self._compute_dynamic_f())
         f_k = Phi.T @ f_vec
         u_k = u @ Phi  # (T, N)
 
@@ -169,7 +169,7 @@ class HeatEngine:
         Phi = self.gb.eigenvectors
         lam_s = np.power(self.gb.eigenvalues, self.gb.s)
         lam_s[0] = 0.0
-        f_vec = np.nan_to_num(self.ff.get_source_vector(self.tickers))
+        f_vec = np.nan_to_num(self._compute_dynamic_f())
         f_k = Phi.T @ f_vec
         m_k = u @ Phi
 
@@ -231,9 +231,10 @@ class HeatEngine:
         W_dir = self.gb.W_directed if hasattr(self.gb, 'W_directed') and \
                 self.gb.W_directed.size > 0 else np.zeros((self.N, self.N))
 
-        # Node roles
-        roles = self.gb.node_roles if hasattr(self.gb, 'node_roles') else \
-                ['productive'] * self.N
+        # Node roles (padded to match self.N)
+        roles = self.gb.node_roles if hasattr(self.gb, 'node_roles') else []
+        if len(roles) < self.N:
+            roles = list(roles) + ['productive'] * (self.N - len(roles))
 
         for i in range(self.N):
             if roles[i] == 'bank':
@@ -264,14 +265,18 @@ class HeatEngine:
         params = cfg.DIM_PARAMS
 
         # --- Debt drag: constant slow drain proportional to D/GDP ---
-        countries = self.gb.node_countries if hasattr(self.gb, 'node_countries') else ['US'] * self.N
+        countries = self.gb.node_countries if hasattr(self.gb, 'node_countries') else []
+        if len(countries) < self.N:
+            countries = list(countries) + ['US'] * (self.N - len(countries))
         for i in range(self.N):
             d_gdp = cfg.SOVEREIGN_DEBT_GDP.get(countries[i], 1.0)
             omega[i] -= params['eta_debt'] * d_gdp * m_current[i] / 252.0
 
         # --- Interest rate effect: per-country, role-dependent ---
         # Each node feels its OWN central bank's rate changes
-        roles = self.gb.node_roles if hasattr(self.gb, 'node_roles') else ['productive'] * self.N
+        roles = self.gb.node_roles if hasattr(self.gb, 'node_roles') else []
+        if len(roles) < self.N:
+            roles = list(roles) + ['productive'] * (self.N - len(roles))
 
         # Pre-compute dr/dt per rate series (avoid recomputing for each node)
         rate_changes = {}  # series_id → dr/dt
@@ -428,7 +433,7 @@ class HeatEngine:
         # Computed in physical space, then projected to spectral
         omega_phys = self._compute_dim_corrections(m[-1])  # use last known m
         omega_k = Phi.T @ omega_phys
-        # Ω shifts the equilibrium: m_eq_k += Ω_k / μ_k
+        # Ω shifts the equilibrium: m_eq_k += Ω_k / μ_k (safe division)
         m_eq += np.where(mu > 1e-10, omega_k / mu, 0.0)
 
         # Inertia coefficients (derived from γ)

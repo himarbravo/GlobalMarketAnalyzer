@@ -12,7 +12,11 @@ from core.heat_engine import HeatEngine
 from core.capital_field import CapitalField
 from core.fundamental_filter import FundamentalFilter
 from core.inertia_detector import InertiaDetector
-from core.regime_calibrator import RegimeCalibrator
+
+try:
+    from core.regime_calibrator import RegimeCalibrator
+except ImportError:
+    RegimeCalibrator = None  # module is function-based, no class
 
 __all__ = [
     "GraphBuilder", "HeatEngine", "CapitalField",

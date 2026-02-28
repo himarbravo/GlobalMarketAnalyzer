@@ -170,7 +170,8 @@ def run_trial(db, trial_id: int) -> dict:
                     print(f"    [{dates[t].date()}] Refit #{n_refits}: "
                           f"edges={int(np.sum(gb.W!=0))} s={gb.s:.3f}")
             except Exception as e:
-                logging.warning(f"Refit error: {e}")
+                import traceback
+                logging.warning(f"Refit error: {e}\n{traceback.format_exc()}")
 
         # ── Daily P&L ──
         ret = returns[t] if t < len(returns) else np.zeros(N)
