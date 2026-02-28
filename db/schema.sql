@@ -291,6 +291,29 @@ CREATE TABLE IF NOT EXISTS macro_indicators (
     -- FRED: Crédito
     credit_spread_bbb DOUBLE PRECISION, -- BBB Option-Adjusted Spread (%)
 
+    -- Tipos de interés bancos centrales
+    rate_eu         DOUBLE PRECISION,   -- ECB Deposit Facility Rate
+    rate_jp         DOUBLE PRECISION,   -- Japan Call Money Rate
+    rate_uk         DOUBLE PRECISION,   -- UK Sterling Overnight Rate
+
+    -- PMI / Business Confidence (mensual, >50 = expansión)
+    pmi_us          DOUBLE PRECISION,
+    pmi_eu          DOUBLE PRECISION,
+    pmi_jp          DOUBLE PRECISION,
+    pmi_cn          DOUBLE PRECISION,
+    pmi_uk          DOUBLE PRECISION,
+
+    -- PIB crecimiento real (trimestral)
+    gdp_us          DOUBLE PRECISION,
+    gdp_eu          DOUBLE PRECISION,
+    gdp_jp          DOUBLE PRECISION,
+    gdp_uk          DOUBLE PRECISION,
+
+    -- Desempleo (mensual, %)
+    unemp_us        DOUBLE PRECISION,
+    unemp_eu        DOUBLE PRECISION,
+    unemp_jp        DOUBLE PRECISION,
+
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
