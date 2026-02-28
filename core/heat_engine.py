@@ -101,7 +101,8 @@ class HeatEngine:
         Phi = self.gb.eigenvectors
         lam_s = np.power(self.gb.eigenvalues, self.gb.s)
         lam_s[0] = 0.0
-        f_vec = np.nan_to_num(self._compute_dynamic_f())
+        # Fast legacy source for calibration (no DB queries)
+        f_vec = np.nan_to_num(self.ff.get_source_vector(self.tickers))
         f_k = Phi.T @ f_vec
         u_k = u @ Phi  # (T, N)
 
@@ -157,6 +158,9 @@ class HeatEngine:
 
         Ecuación de 2do orden: γ·m'' + m' = -μ·(m - m_eq)
         Discretizada: m[t+1] = m[t] + (1-1/γ)·v[t] - (μ/γ)·(m[t] - m_eq)
+
+        Uses per-mode weighted error: modes with higher eigenvalues
+        (more structure) get more weight in the decision.
         """
         u = self.gb.u.astype(np.float64)
         u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
@@ -169,7 +173,8 @@ class HeatEngine:
         Phi = self.gb.eigenvectors
         lam_s = np.power(self.gb.eigenvalues, self.gb.s)
         lam_s[0] = 0.0
-        f_vec = np.nan_to_num(self._compute_dynamic_f())
+        # Fast legacy source for calibration (no DB queries)
+        f_vec = np.nan_to_num(self.ff.get_source_vector(self.tickers))
         f_k = Phi.T @ f_vec
         m_k = u @ Phi
 
@@ -184,17 +189,26 @@ class HeatEngine:
         vel = np.zeros_like(m_k)
         vel[1:] = np.diff(m_k, axis=0)
 
-        best_gamma = 1.0  # default = sin inercia (comportamiento original)
+        # Weight modes by eigenvalue (higher eigenvalue = more structure to predict)
+        mode_weights = lam_s / (np.sum(lam_s) + 1e-10)
+        # Focus on top modes with actual structure
+        mode_weights[:1] = 0.0  # skip zero mode
+
+        best_gamma = GAMMA_DEFAULT
         best_err = np.inf
 
-        for gamma_c in [1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0, 35.0, 50.0]:
+        # Finer grid: includes sub-1 values and realistic momentum range
+        for gamma_c in [0.5, 0.8, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]:
             mw = 1.0 - 1.0 / gamma_c       # momentum weight
-            rw = mu / gamma_c               # revert weight
+            rw = mu / gamma_c               # revert weight per mode
 
             pred = (m_k[t_split:-1]
                     + mw * vel[t_split:-1]
                     - rw * (m_k[t_split:-1] - m_eq))
-            err = float(np.sum((m_k[t_split+1:] - pred) ** 2))
+
+            # Weighted MSE: modes with more structure count more
+            residuals = (m_k[t_split+1:] - pred) ** 2
+            err = float(np.sum(residuals @ mode_weights))
 
             if err < best_err:
                 best_err = err
@@ -219,7 +233,12 @@ class HeatEngine:
                 yield_spread = max(0.005, float(last_spread) / 100.0)
 
         # Composite sentiment: S_fund × S_macro(PMI) × S_fear(VIX) × S_earnings
-        sentiment = self.ff.get_composite_sentiment_vector(self.tickers)
+        # Cached to avoid repeated DB queries during refit cycles
+        cache_key = tuple(self.tickers)
+        if not hasattr(self, '_sentiment_cache') or self._sentiment_cache_key != cache_key:
+            self._sentiment_cache = self.ff.get_composite_sentiment_vector(self.tickers)
+            self._sentiment_cache_key = cache_key
+        sentiment = self._sentiment_cache
 
         # Capital creation rate dK/dt (diario)
         capital_rates = np.zeros(self.N)
@@ -279,29 +298,33 @@ class HeatEngine:
             roles = list(roles) + ['productive'] * (self.N - len(roles))
 
         # Pre-compute dr/dt per rate series (avoid recomputing for each node)
-        rate_changes = {}  # series_id → dr/dt
-        fed_rate = self.gb.dimensions.get('fed_rate', pd.Series(dtype=float))
-        if isinstance(fed_rate, pd.Series) and len(fed_rate) >= 2:
-            r_diff = fed_rate.diff().tail(20).mean()
-            if pd.notna(r_diff):
-                rate_changes['FEDFUNDS'] = float(r_diff) / 100.0
+        # Cached: central bank rates are monthly, no need to re-query
+        if not hasattr(self, '_rate_changes_cache'):
+            rate_changes = {}  # series_id → dr/dt
+            fed_rate = self.gb.dimensions.get('fed_rate', pd.Series(dtype=float))
+            if isinstance(fed_rate, pd.Series) and len(fed_rate) >= 2:
+                r_diff = fed_rate.diff().tail(20).mean()
+                if pd.notna(r_diff):
+                    rate_changes['FEDFUNDS'] = float(r_diff) / 100.0
 
-        # Try to load other central bank rates from macro_indicators
-        try:
-            for zone, series_id in cfg.CENTRAL_BANK_RATES.items():
-                if series_id in rate_changes:
-                    continue
-                field = f"rate_{zone.lower()}"
-                r = self.ff.db.client.table("macro_indicators").select(
-                    f"date, {field}"
-                ).not_.is_(field, "null").order("date", desc=True).limit(20).execute()
-                if r.data and len(r.data) >= 2:
-                    vals = [float(row[field]) for row in r.data if row.get(field) is not None]
-                    if len(vals) >= 2:
-                        dr = (vals[0] - vals[-1]) / len(vals) / 100.0
-                        rate_changes[series_id] = dr
-        except Exception:
-            pass
+            # Try to load other central bank rates from macro_indicators
+            try:
+                for zone, series_id in cfg.CENTRAL_BANK_RATES.items():
+                    if series_id in rate_changes:
+                        continue
+                    field = f"rate_{zone.lower()}"
+                    r = self.ff.db.client.table("macro_indicators").select(
+                        f"date, {field}"
+                    ).not_.is_(field, "null").order("date", desc=True).limit(20).execute()
+                    if r.data and len(r.data) >= 2:
+                        vals = [float(row[field]) for row in r.data if row.get(field) is not None]
+                        if len(vals) >= 2:
+                            dr = (vals[0] - vals[-1]) / len(vals) / 100.0
+                            rate_changes[series_id] = dr
+            except Exception:
+                pass
+            self._rate_changes_cache = rate_changes
+        rate_changes = self._rate_changes_cache
 
         # Apply rate effect per node using its country's central bank
         for i in range(self.N):
