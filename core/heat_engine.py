@@ -218,8 +218,8 @@ class HeatEngine:
             if not np.isnan(last_spread):
                 yield_spread = max(0.005, float(last_spread) / 100.0)
 
-        # Sentiment vector S(t)
-        sentiment = self.ff.get_sentiment_vector(self.tickers)
+        # Composite sentiment: S_fund × S_macro(PMI) × S_fear(VIX) × S_earnings
+        sentiment = self.ff.get_composite_sentiment_vector(self.tickers)
 
         # Capital creation rate dK/dt (diario)
         capital_rates = np.zeros(self.N)

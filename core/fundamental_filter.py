@@ -242,6 +242,94 @@ class FundamentalFilter:
         """Vector S(t) ∈ [0.5, 2.0] ordenado según la lista de tickers."""
         return np.array([self.sentiments.get(t, 1.0) for t in tickers])
 
+    def get_composite_sentiment_vector(self, tickers: list[str]) -> np.ndarray:
+        """
+        S_compuesto = S_fund × S_macro × S_fear × S_earnings
+
+        S_fund:     [0.5, 2.0]  trimestral, fundamentales empresa
+        S_macro:    [0.7, 1.3]  mensual, PMI del país
+        S_fear:     [0.6, 1.2]  diario, VIX global
+        S_earnings: [0.8, 1.2]  evento, surprise post-earnings
+        """
+        import config as cfg
+
+        N = len(tickers)
+        s_fund = self.get_sentiment_vector(tickers)
+
+        # ── Lente 2: PMI del país (mensual) ──
+        s_macro = np.ones(N)
+        try:
+            # Load latest PMI values per zone
+            pmi_fields = {
+                "US": "pmi_us", "CA": "pmi_us",
+                "DE": "pmi_eu", "NL": "pmi_eu", "DK": "pmi_eu", "UK": "pmi_uk",
+                "JP": "pmi_jp", "CN": "pmi_cn",
+                "TW": "pmi_cn", "BR": "pmi_us", "IN": "pmi_us",
+            }
+            pmi_values = {}
+            for field in set(pmi_fields.values()):
+                r = self.db.client.table("macro_indicators").select(
+                    f"date, {field}"
+                ).not_.is_(field, "null").order("date", desc=True).limit(1).execute()
+                if r.data and r.data[0].get(field) is not None:
+                    pmi_values[field] = float(r.data[0][field])
+
+            for i, t in enumerate(tickers):
+                country = cfg.get_country(t)
+                field = pmi_fields.get(country, "pmi_us")
+                pmi = pmi_values.get(field)
+                if pmi is not None and pmi > 0:
+                    # PMI/50: >1 expansión, <1 contracción
+                    # Raíz cuadrada para suavizar: no queremos ×1.4 solo por PMI=70
+                    s_macro[i] = np.clip((pmi / 50.0) ** 0.5, 0.7, 1.3)
+        except Exception:
+            pass
+
+        # ── Lente 3: Miedo global (VIX, diario) ──
+        s_fear = np.ones(N)
+        try:
+            r = self.db.client.table("macro_indicators").select(
+                "vix"
+            ).not_.is_("vix", "null").order("date", desc=True).limit(1).execute()
+            if r.data and r.data[0].get("vix") is not None:
+                vix = float(r.data[0]["vix"])
+                if vix > 0:
+                    # 20/VIX^0.3: VIX=15→1.08, VIX=25→0.95, VIX=40→0.82
+                    fear_factor = np.clip((20.0 / vix) ** 0.3, 0.6, 1.2)
+                    s_fear[:] = fear_factor
+        except Exception:
+            pass
+
+        # ── Lente 4: Earnings surprise (evento, decae en 20 días) ──
+        s_earnings = np.ones(N)
+        try:
+            from datetime import datetime, timedelta
+            cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            r = self.db.client.table("earnings_calendar").select(
+                "ticker, eps_surprise, earnings_date"
+            ).gte("earnings_date", cutoff).execute()
+            if r.data:
+                for row in r.data:
+                    t = row["ticker"]
+                    if t in tickers and row.get("eps_surprise") is not None:
+                        idx = tickers.index(t)
+                        surprise = float(row["eps_surprise"])
+                        # Days since earnings (decay factor)
+                        days_ago = (datetime.now() -
+                                    datetime.strptime(row["earnings_date"], "%Y-%m-%d")).days
+                        decay = max(0, 1.0 - days_ago / 20.0)
+                        # Surprise > 0 → boost, < 0 → penalize
+                        if surprise > 5:   # beat by >5%
+                            s_earnings[idx] = 1.0 + 0.2 * decay
+                        elif surprise < -5:  # missed by >5%
+                            s_earnings[idx] = 1.0 - 0.2 * decay
+        except Exception:
+            pass
+
+        # ── Producto final ──
+        composite = s_fund * s_macro * s_fear * s_earnings
+        return np.clip(composite, 0.3, 3.0)
+
     def get_score_vector(self, tickers: list[str]) -> np.ndarray:
         """Devuelve vector F ordenado según la lista de tickers."""
         return np.array([self.scores.get(t, 0.0) for t in tickers])
