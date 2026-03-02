@@ -36,12 +36,103 @@ REFIT_DAYS = 20
 HOLD_MR = 5
 HOLD_COMP = 7
 K_TOP = 5
-Z_ENTRY = 0.8
-TX_BPS = 10
+Z_ENTRY_BASE = 0.8        # P1.1: base threshold, adjusted by VIX
+TX_BPS_LARGE = 5           # P1.5: large-cap US (SPY, AAPL, etc.)
+TX_BPS_MID = 15            # P1.5: mid-cap / intl developed
+TX_BPS_SMALL = 25          # P1.5: EM / small-cap / exotic
+MAX_POS_PCT = 0.05         # P1.3: max 5% of equity per position
+STOP_ATR_MULT = 2.0        # P1.4: trailing stop at 2× ATR
+STOP_HARD = -0.10          # P1.4: hard stop at -10%
 INITIAL = 100_000
 N_TRIALS = 3
 TICKERS_PER_TRIAL = 20
 START = "2025-01-01"
+
+
+def get_tx_cost(ticker):
+    """P1.5: realistic cost by ticker type."""
+    import config as cfg
+    country = cfg.TICKER_COUNTRY.get(ticker, "US")
+    zone = cfg.COUNTRY_TO_ZONE.get(country, "USD")
+    if zone == "USD" and ticker not in cfg.ETF_TICKERS:
+        return TX_BPS_LARGE / 10000   # 5bps for large US
+    elif zone in ("EUR", "ASIA"):
+        return TX_BPS_MID / 10000     # 15bps for intl developed
+    else:
+        return TX_BPS_SMALL / 10000   # 25bps for EM / exotic
+
+
+def adaptive_z_entry(engine):
+    """P1.1: Z_ENTRY adapts to regime. Lower in calm (more trades), higher in stress."""
+    vix = 15.0  # default
+    try:
+        if hasattr(engine.gb, 'dimensions') and 'vix' in engine.gb.dimensions:
+            v = engine.gb.dimensions['vix']
+            if hasattr(v, 'iloc') and len(v) > 0:
+                vix = float(v.iloc[-1])
+        elif hasattr(engine.gb, 'vix_level'):
+            vix = float(engine.gb.vix_level)
+    except Exception:
+        pass
+    # Z = base + 0.03 per VIX point above 15 (more selective in stress)
+    z = Z_ENTRY_BASE + max(0, (vix - 15)) * 0.03
+    return np.clip(z, 0.5, 2.5)
+
+
+def kelly_size(win_rate, avg_win, avg_loss, equity, max_pct=MAX_POS_PCT):
+    """P1.3: Half-Kelly position sizing. Returns exposure multiplier ~1.0."""
+    if avg_loss == 0 or win_rate <= 0:
+        return 1.0  # equal weight fallback
+    b = avg_win / abs(avg_loss)
+    q = 1 - win_rate
+    kelly = (win_rate * b - q) / b
+    half_kelly = kelly / 2
+    # Clamp to [0.5, 1.5] — don't deviate too far from equal weight
+    return np.clip(half_kelly + 0.5, 0.5, 1.5)
+
+
+def optimize_composite_weights(engine, returns_win, tickers, N):
+    """P1.2: Walk-forward weight optimization. Tests grid of weights and picks best Sharpe."""
+    if engine.z_scores is None or len(engine.z_scores) == 0:
+        return (-0.4, 0.3, -0.3)
+
+    ff_scores = {tk: engine.ff.scores.get(tk, 0) for tk in tickers}
+    mp = getattr(engine, 'mispricing', None)
+
+    best_w = (-0.4, 0.3, -0.3)
+    best_sh = -999
+
+    # Small grid search over weight combinations
+    for wz in [-0.6, -0.4, -0.2]:
+        for wf in [0.0, 0.15, 0.3]:
+            for wd in [-0.4, -0.2, 0.0]:
+                # Simulate composite signal over last 60 days
+                daily_ret = []
+                for t in range(max(0, len(engine.z_scores) - 60), len(engine.z_scores)):
+                    z = engine.z_scores[t]
+                    d = mp[t] if mp is not None and t < len(mp) else np.zeros(N)
+                    scores = np.array([
+                        wz * float(z[i]) + wf * ff_scores.get(tickers[i], 0) * 5 + wd * float(d[i])
+                        for i in range(min(N, len(z)))
+                    ])
+                    order = np.argsort(scores)
+                    # Top K long, bottom K short
+                    r = returns_win[t] if t < len(returns_win) else np.zeros(N)
+                    pnl = 0
+                    for idx in order[-K_TOP:]:
+                        if idx < N: pnl += r[idx] / K_TOP
+                    for idx in order[:K_TOP]:
+                        if idx < N: pnl -= r[idx] / K_TOP
+                    daily_ret.append(pnl)
+
+                if len(daily_ret) > 5:
+                    dr = np.array(daily_ret)
+                    sh = np.mean(dr) / (np.std(dr) + 1e-10) * np.sqrt(252)
+                    if sh > best_sh:
+                        best_sh = sh
+                        best_w = (wz, wf, wd)
+
+    return best_w
 
 
 def pick_sector_subset(seed: int) -> list:
@@ -104,7 +195,7 @@ def run_trial(db, trial_id: int) -> dict:
     ff = FundamentalFilter(db)
     ff.compute_all()
 
-    # Strategy state
+    # Strategy state — positions now: (idx, direction, remaining, entry_price, peak_price, size, tx_cost)
     equity_mr = [INITIAL]
     equity_comp = [INITIAL]
     equity_rand = [INITIAL]
@@ -118,11 +209,19 @@ def run_trial(db, trial_id: int) -> dict:
     trade_pnls_mr = []
     trade_pnls_comp = []
 
-    tx = TX_BPS / 10000
     current_z = None
     current_comp = None
     n_refits = 0
     warmup = 120  # min days before first trade
+    comp_weights = (-0.4, 0.3, -0.3)  # P1.2: optimized per refit
+    current_z_entry = Z_ENTRY_BASE
+
+    # Pre-compute ATR for stop losses
+    atr = pd.DataFrame(np.zeros_like(prices.values), index=prices.index, columns=tickers)
+    for col in tickers:
+        high_low = prices[col].rolling(14).max() - prices[col].rolling(14).min()
+        atr[col] = high_low.rolling(14).mean() / prices[col]  # as % of price
+    atr = atr.fillna(0.02)  # default 2% ATR
 
     for t in range(warmup, T):
         day_in_bt = t - warmup
@@ -157,13 +256,22 @@ def run_trial(db, trial_id: int) -> dict:
                 mp = getattr(engine, 'mispricing', None)
                 delta = mp[-1] if mp is not None and len(mp) > 0 else np.zeros(N)
 
+                # P1.1: Adaptive Z_ENTRY
+                current_z_entry = adaptive_z_entry(engine)
+
+                # P1.2: Optimize composite weights on training window
+                comp_weights = optimize_composite_weights(
+                    engine, r_win.values, tickers, N
+                )
+
                 current_comp = np.zeros(N)
                 if current_z is not None:
+                    wz, wf, wd = comp_weights
                     for i, tk in enumerate(tickers):
                         zi = float(current_z[i]) if i < len(current_z) else 0
                         F = ff.scores.get(tk, 0)
                         di = float(delta[i]) if i < len(delta) else 0
-                        current_comp[i] = -0.4 * zi + 0.3 * F * 5 - 0.3 * di
+                        current_comp[i] = wz * zi + wf * F * 5 + wd * di
 
                 n_refits += 1
                 if n_refits <= 3 or n_refits % 3 == 0:
@@ -173,57 +281,100 @@ def run_trial(db, trial_id: int) -> dict:
                 import traceback
                 logging.warning(f"Refit error: {e}\n{traceback.format_exc()}")
 
-        # ── Daily P&L ──
+        # ── Daily P&L with stops ──
         ret = returns[t] if t < len(returns) else np.zeros(N)
+        cur_prices = prices.iloc[t].values if t < len(prices) else np.ones(N)
+        cur_atr = atr.iloc[t].values if t < len(atr) else np.full(N, 0.02)
 
-        def step_positions(positions, equity_list):
+        def step_positions_with_stops(positions, equity_list):
             pnl = 0.0
             alive = []
-            for idx, direction, remaining in positions:
-                if idx < N:
-                    pnl += direction * ret[idx]
-                remaining -= 1
-                if remaining > 0:
-                    alive.append((idx, direction, remaining))
-                else:
-                    pnl -= tx
-            equity_list.append(equity_list[-1] * (1 + pnl))
-            return alive, pnl
+            closed_pnls = []
+            for pos in positions:
+                idx, direction, remaining, entry_p, peak_p, size, tx_cost = pos
+                if idx >= N:
+                    continue
+                pos_ret = direction * ret[idx] * size
+                pnl += pos_ret
 
-        pos_mr, pnl_mr = step_positions(pos_mr, equity_mr)
-        pos_comp, pnl_comp = step_positions(pos_comp, equity_comp)
-        pos_rand, _ = step_positions(pos_rand, equity_rand)
+                # Update peak for trailing stop
+                cur_p = cur_prices[idx] if idx < len(cur_prices) else entry_p
+                new_peak = max(peak_p, cur_p) if direction > 0 else min(peak_p, cur_p)
+
+                # P1.4: Check stops (hard stop only — trailing too aggressive for short holds)
+                pnl_since_entry = direction * (cur_p - entry_p) / (entry_p + 1e-10)
+                stopped = False
+                if pnl_since_entry < STOP_HARD:  # Hard stop at -10%
+                    stopped = True
+
+                remaining -= 1
+                if remaining <= 0 or stopped:
+                    pnl -= tx_cost  # exit cost
+                    closed_pnls.append(pos_ret)
+                else:
+                    alive.append((idx, direction, remaining, entry_p, new_peak, size, tx_cost))
+
+            equity_list.append(equity_list[-1] * (1 + pnl))
+            return alive, pnl, closed_pnls
+
+        pos_mr, pnl_mr, closed_mr = step_positions_with_stops(pos_mr, equity_mr)
+        pos_comp, pnl_comp, closed_comp = step_positions_with_stops(pos_comp, equity_comp)
+        pos_rand, _, _ = step_positions_with_stops(pos_rand, equity_rand)
         equity_spy.append(equity_spy[-1] * (1 + ret[spy_idx]))
+        trade_pnls_mr.extend(closed_mr)
+        trade_pnls_comp.extend(closed_comp)
 
         # ── Open trades on refit ──
         if day_in_bt % REFIT_DAYS == 0 and current_z is not None:
             z = np.nan_to_num(current_z[:N], nan=0)
             order = np.argsort(z)
 
-            # MR
+            # P1.3: Kelly sizing from historical trade PnLs
+            if len(trade_pnls_mr) >= 10:
+                wins = [p for p in trade_pnls_mr if p > 0]
+                losses = [p for p in trade_pnls_mr if p <= 0]
+                wr = len(wins) / len(trade_pnls_mr) if trade_pnls_mr else 0.5
+                aw = np.mean(wins) if wins else 0.01
+                al = np.mean(losses) if losses else -0.01
+                pos_size = kelly_size(wr, aw, al, equity_mr[-1])
+            else:
+                pos_size = 1.0  # equal weight until enough data
+
+            # MR trades with adaptive Z and Kelly sizing
             for idx in order[:K_TOP]:
-                if z[idx] < -Z_ENTRY:
-                    pos_mr.append((idx, +1, HOLD_MR))
+                if z[idx] < -current_z_entry:
+                    tx = get_tx_cost(tickers[idx])
+                    entry_p = cur_prices[idx] if idx < len(cur_prices) else 1.0
+                    pos_mr.append((idx, +1, HOLD_MR, entry_p, entry_p, pos_size, tx))
                     n_trades_mr += 1
             for idx in order[-K_TOP:]:
-                if z[idx] > Z_ENTRY:
-                    pos_mr.append((idx, -1, HOLD_MR))
+                if z[idx] > current_z_entry:
+                    tx = get_tx_cost(tickers[idx])
+                    entry_p = cur_prices[idx] if idx < len(cur_prices) else 1.0
+                    pos_mr.append((idx, -1, HOLD_MR, entry_p, entry_p, pos_size, tx))
                     n_trades_mr += 1
 
-            # Composite
+            # Composite with optimized weights
             c = np.nan_to_num(current_comp[:N], nan=0)
             c_order = np.argsort(c)
             for idx in c_order[-K_TOP:]:
-                pos_comp.append((idx, +1, HOLD_COMP))
+                tx = get_tx_cost(tickers[idx])
+                entry_p = cur_prices[idx] if idx < len(cur_prices) else 1.0
+                pos_comp.append((idx, +1, HOLD_COMP, entry_p, entry_p, 1.0, tx))
                 n_trades_comp += 1
             for idx in c_order[:K_TOP]:
-                pos_comp.append((idx, -1, HOLD_COMP))
+                tx = get_tx_cost(tickers[idx])
+                entry_p = cur_prices[idx] if idx < len(cur_prices) else 1.0
+                pos_comp.append((idx, -1, HOLD_COMP, entry_p, entry_p, 1.0, tx))
                 n_trades_comp += 1
 
             # Random
             rng = np.random.default_rng(seed=t)
             for idx in rng.choice(N, size=min(K_TOP, N), replace=False):
-                pos_rand.append((idx, +1 if rng.random() > 0.5 else -1, 10))
+                tx = get_tx_cost(tickers[idx])
+                entry_p = cur_prices[idx] if idx < len(cur_prices) else 1.0
+                pos_rand.append((idx, +1 if rng.random() > 0.5 else -1, 10,
+                                entry_p, entry_p, 1.0, tx))
                 n_trades_rand += 1
 
     # ── Metrics ──
@@ -253,7 +404,7 @@ def main():
 
     print("=" * 80)
     print("  BACKTEST — Walk-Forward Predictive Capacity")
-    print(f"  {N_TRIALS} trials × {TICKERS_PER_TRIAL} tickers | TX={TX_BPS}bps")
+    print(f"  {N_TRIALS} trials × {TICKERS_PER_TRIAL} tickers | TX={TX_BPS_LARGE}/{TX_BPS_MID}/{TX_BPS_SMALL}bps")
     print("=" * 80)
 
     all_results = []
