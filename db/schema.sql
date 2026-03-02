@@ -457,3 +457,21 @@ ALTER TABLE signals             DISABLE ROW LEVEL SECURITY;
 ALTER TABLE news_sentiment      DISABLE ROW LEVEL SECURITY;
 ALTER TABLE earnings_calendar   DISABLE ROW LEVEL SECURITY;
 ALTER TABLE sector_performance  DISABLE ROW LEVEL SECURITY;
+
+
+-- ============================================================
+-- P2.2: Credit spread columns (FRED IG/HY spreads)
+-- ============================================================
+ALTER TABLE macro_indicators ADD COLUMN IF NOT EXISTS credit_spread_ig REAL;
+ALTER TABLE macro_indicators ADD COLUMN IF NOT EXISTS credit_spread_hy REAL;
+
+
+-- ============================================================
+-- P3.2: Kalman state persistence (UKF + EKF state across runs)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS kalman_state (
+    filter_name TEXT PRIMARY KEY,
+    state_json  JSONB NOT NULL
+);
+
+ALTER TABLE kalman_state DISABLE ROW LEVEL SECURITY;

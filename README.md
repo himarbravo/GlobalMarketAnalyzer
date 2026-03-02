@@ -25,20 +25,20 @@ $$\gamma \cdot m'' + m' = -\alpha \cdot L_z^s \cdot m + f_i(t) + \Omega_i(t) + v
 ║  Φ_FX    = β_fx · r_fx · m̄_other_zone   (FX coupling)             ║
 ╠═══════════════════════════════════════════════════════════════════════╣
 ║                                                                      ║
-║  ZONA USD (~50 nodos)       ║  ZONA EUR (~13 nodos)                 ║
+║  ZONA USD (~50 nodos)       ║  ZONA EUR (~25 nodos)                 ║
 ║  ┌─BANKS─┐  ┌─PRODUCTIVE─┐ ║  ┌─BANKS─┐  ┌─PRODUCTIVE─┐           ║
 ║  │JPM BAC│  │AAPL NVDA   │ ║  │HSBC   │  │SAP  ASML   │           ║
 ║  │GS  MS │  │TSLA TLT    │ ║  │BNP.PA │  │NVO  SIE    │           ║
 ║  │WFC    │→→│GLD  BTC    │ ║  │SAN ING│→→│LVMHF TTE   │           ║
-║  └───────┘←←└────────────┘ ║  └───────┘←←│AZN  EWG    │           ║
-║  L_USD (retornos en USD)    ║  L_EUR (retornos en EUR)              ║
+║  └───────┘←←└────────────┘ ║  │BBVA   │←←│AZN  NESN   │           ║
+║  L_USD (retornos en USD)    ║  └───────┘  └────────────┘            ║
 ║         ↕ EURUSD                    ↕ USDJPY                        ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║  ZONA ASIA (~10 nodos)      ║  ZONA EM (~8 nodos)                  ║
+║  ZONA ASIA (~22 nodos)      ║  ZONA EM (~20 nodos)                  ║
 ║  ┌─BANKS─┐  ┌─PRODUCTIVE─┐ ║  ┌─BANKS─┐  ┌─PRODUCTIVE─┐           ║
 ║  │MUFG   │  │TSM  SONY   │ ║  │ITUB   │  │VALE EWZ    │           ║
 ║  │SMFG   │→→│TM   BABA   │ ║  │HDB    │→→│PBR  INDA   │           ║
-║  └───────┘←←│EWJ  FXI    │ ║  └───────┘←←│EWT         │           ║
+║  │005930 │←←│EWJ  BHP    │ ║  │TLKM   │←←│AMX  2222   │           ║
 ║  L_ASIA (moneda local)      ║  L_EM (moneda local)                  ║
 ╚═══════════════════════════════════════════════════════════════════════╝
   →→ = lending (bank creates money)    ←← = interest (company pays back)
@@ -71,7 +71,7 @@ $$\gamma \cdot m'' + m' = -\alpha \cdot L_z^s \cdot m + f_i(t) + \Omega_i(t) + v
 - **S_fund** ∈ [0.5, 2.0]: from 7-component fundamental score (quarterly)
 - **S_macro** ∈ [0.7, 1.3]: from PMI of ticker's country (monthly)
 - **S_fear** ∈ [0.6, 1.2]: from VIX (daily)
-- **S_earnings** ∈ [0.8, 1.2]: from eps_surprise, decays over 20 days
+- **S_earnings** ∈ [0.7, 1.2]: from eps_surprise (asymmetric: -0.3 miss/+0.2 beat) + analyst target gap (P2.3)
 - **S_composite = S_fund × S_macro × S_fear × S_earnings**
 
 ### Step 5 — Compute Dynamic f(t) (`heat_engine.py`)
@@ -111,13 +111,15 @@ The equation is the same in all regimes. What changes are the **parameters**:
 
 | Parameter | Value | Calibrated? | Meaning |
 |---|---|---|---|
-| α | ~0.02 | ✅ OOS | Diffusion speed |
-| γ | ~5 | ✅ Grid search | Inertia / momentum |
-| s | ~0.8 | ✅ Daily (VIX) | Fractional exponent |
+| α | ~0.02 | ✅ OOS (EKF) | Diffusion speed |
+| γ | ~5 | ✅ Grid search (EKF) | Inertia / momentum |
+| s | ~0.8 | ✅ UKF (P3.1) | Fractional exponent — tracked through regime transitions |
 | β_fx | 0.30 | ❌ Fixed | FX flow elasticity |
 | η | 0.02 | ❌ Fixed | Sovereign debt weight |
 | β_r_bank | -0.50 | ❌ Fixed | Bank rate sensitivity |
 | β_r_prod | +0.30 | ❌ Fixed | Company rate sensitivity |
+| S_CREDIT_DELTA | 0.20 | ❌ Fixed (P2.2) | Credit spread widening speed |
+| S_RATE_MOM | 0.15 | ❌ Fixed (P2.1) | Central bank rate momentum |
 
 ## Execution
 
@@ -148,11 +150,27 @@ python tests/historical_tests.py
 - Multi-currency fields (4 zones, local returns, per-zone Laplacians)
 - Dimensional corrections Ω(t) (debt + rate + FX coupling)
 - International macro indicators (ECB, BoJ, PMI, GDP)
-- Expanded universe (13 banks, ~80 tickers across 4 zones)
-- **Bayesian adaptation**: 3 parallel filters in solve():
-  - KF for f_k (source, linear)
-  - EKF for α_k (diffusion, per-mode Jacobian)
-  - EKF for γ (inertia, global Jacobian)
+- **P0**: Expanded universe (**148 tickers**, 10 countries, 4 zones) — PR #3
+- **Bayesian adaptation**: 3 parallel EKF filters for f_k, α, γ
+- **P1**: Trading strategy — adaptive Z_ENTRY, 3-tier costs (5/15/25 bps), hard stop -10% — PR #5
+- **P2.2**: Credit spread delta (early warning before VIX) — PR #7
+- **P2.3**: Earnings whisper + analyst target gap — PR #8
+- **P2.1**: Central bank rate momentum — PR #9
+- **P3.1**: UKF for s (regime transition tracking via sigma points) — PR #12
+- **P3.2**: Kalman state persistence (Supabase JSONB) — PR #12
+
+### Backtest Results (with realistic costs)
+
+```
+MR (z-score) Strategy:
+  Sharpe:     0.89
+  Return:     +17.2%
+  α vs SPY:   +0.6%
+  α vs Rand:  +49.5%
+  MaxDD:      -12.4%
+  Win trials: 3/3 ✅
+  Cost model: 5bps US / 15bps intl / 25bps EM
+```
 
 ### Diagnostic: Where Alpha Comes From
 
@@ -165,41 +183,18 @@ python tests/historical_tests.py
 
 Alpha lives in **cross-zone latency** (days-weeks to arbitrage between jurisdictions), not in intra-zone dynamics (milliseconds, already arbed by HFT).
 
-### 🔴 Current Weaknesses
+### 🟡 Current Limitations
 
-1. **1 of 3 trials works** — model only generates alpha with multi-zone diversification
-2. **9 trades in 289 days** — Z_ENTRY=1.5 too restrictive, need ~200 trades/year
-3. **No crisis data** — only 2025-2026 (bull market), no bear market validation
-4. **Composite strategy loses money** — weights 0.4z/0.3F/0.3δ are arbitrary
-5. **10bps cost model** — real-world slippage, spread, market impact not included
+1. **No crisis validation** — only tested on 2025-2026 (bull market)
+2. **Composite strategy loses** — weights 0.4z/0.3F/0.3δ need better optimization
+3. **Defensive signals untested** — credit spread delta, rate momentum ready but no stress events in test window
+4. **UKF lacks stress data** — regime transition detection can't be validated without crisis periods
 
-### Next: Alpha Increase Roadmap (Priority Order)
+### Next: P4 — Validation (Critical)
 
-**P0 — Graph expansion (biggest alpha driver)**
-- [ ] 20-25 tickers per zone (currently EUR=13, ASIA=10, EM=8)
-- [ ] Sub-zones (Nordics, MENA, Latam) for finer cross-zone gradients
-- [ ] Cross-zone explicit edges (BoJ → TLT, sovereign wealth fund flows)
-- [ ] Non-US yields (Bund 10Y, JGB 10Y) as per-zone signals
-
-**P1 — Trading strategy calibration**
-- [ ] Adaptive Z_ENTRY (lower in bull, higher in crisis) → more trades
-- [ ] Optimize composite weights via walk-forward Sharpe maximization
-- [ ] Position sizing (Kelly criterion) and stop losses
-- [ ] Realistic cost model with spread + slippage
-
-**P2 — Information edge in f(t)**
-- [ ] NLP sentiment from central bank speeches (predict rate decisions)
-- [ ] Alternative data: satellite (ports, factories), web traffic
-- [ ] Real-time credit spreads (IG/HY) for faster regime detection than VIX
-- [ ] Earnings whisper consensus vs surprise for S_earnings
-
-**P3 — Extended Bayesian adaptation**
-- [ ] UKF for s (fractional exponent, highly nonlinear λ^s)
-- [ ] Joint EKF state vector [f, α, γ, s] with full covariance
-- [ ] Online learning: persist Kalman state across daily runs
-
-**P4 — Validation**
-- [ ] Paper trading: 6 months of live signals without execution
-- [ ] Crisis backtest: COVID Mar 2020, Fed 2022, Volmageddon 2018
+**P4 — Crisis validation and paper trading**
+- [ ] Crisis backtest: COVID Mar 2020, Fed rate hikes 2022, Volmageddon 2018
 - [ ] Cross-validation: train 2020-2023, test 2024-2026 and vice versa
-
+- [ ] Paper trading: 6 months of live signals without execution
+- [ ] Stress test: verify credit spread delta catches COVID-style drawdown
+- [ ] Verify UKF s tracking: does s drop before VIX spikes?

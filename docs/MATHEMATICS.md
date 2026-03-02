@@ -96,7 +96,24 @@ $$L^s = \Phi \cdot \Lambda^s \cdot \Phi^T, \quad \Lambda^s = \text{diag}(\lambda
 
 El parámetro $s \in (0, 1]$ controla la **no-localidad**:
 
-$$s(t) = s_0 - c_1 \cdot \text{VIX}_{norm}(t) - c_2 \cdot \text{spread}(t) - c_3 \cdot \text{credit}(t)$$
+$$s(t) = s_0 - c_1 \cdot \text{VIX}_{norm} - c_2 \cdot \text{spread} - c_3 \cdot \text{credit} - c_4 \cdot \text{credit\_\Delta} - c_5 \cdot \text{rate\_mom} - c_6 \cdot \text{copper} - c_7 \cdot \text{oil}$$
+
+This heuristic s is used as the **prior attractor** for a UKF (Unscented Kalman Filter, P3.1) that tracks s through regime transitions using prediction error feedback:
+
+$$s_{UKF}(t) = \text{UKF}(s_{heuristic}(t), \varepsilon_{pred}(t))$$
+
+The UKF uses Merwe scaled sigma points (3 points for 1D state) and drifts toward the heuristic s while incorporating actual prediction errors to refine the estimate.
+
+| Coefficient | Value | Signal |
+|---|---|---|
+| $c_1$ (VIX) | 0.20 | Implied volatility |
+| $c_2$ (DXY) | 0.15 | Dollar strength |
+| $c_3$ (spread) | 0.15 | Yield curve |
+| $c_4$ (credit) | 0.15 | Credit spread level |
+| $c_5$ (credit Δ) | 0.20 | Credit spread widening speed (P2.2) |
+| $c_6$ (rate mom) | 0.15 | CB rate hiking momentum (P2.1) |
+| $c_7$ (copper) | 0.10 | Industrial health |
+| $c_8$ (oil) | 0.05 | Energy shock |
 
 | $s$ | Régimen | Significado |
 |---|---|---|
@@ -435,15 +452,19 @@ Con 9+ parámetros y 20 años de datos:
 
 ## 12. Roadmap de Implementación
 
-| Prioridad | Tarea | Dependencia | Estado |
-|---|---|---|---|
-| 🔴 1 | Cargar 20y de datos (precios + macro + fundamentals) | Ninguna | En progreso |
-| � 2 | Calibrar $\lambda^*(R)$ por régimen con OLS | Datos 20y | Pendiente |
-| 🔴 3 | Backtest δ vs retornos futuros (5d, 20d) | λ calibrado | Pendiente |
-| 🟡 4 | Implementar $\kappa$ acoplamiento en heat_engine | Backtest δ positivo | Pendiente |
-| 🟡 5 | Grafo dirigido $\tilde{W}$ con Granger causality | Datos 20y | Pendiente |
-| 🟡 6 | Calibrar $\alpha_\lambda$, $\eta$, $\xi$ | Grafo dirigido | Pendiente |
-| 🟢 7 | Walk-forward 2020-2026 | Todo calibrado | Pendiente |
-| 🟢 8 | Eigenvalores complejos → ciclos sectoriales | Grafo dirigido | Investigación |
-
-
+| Prioridad | Tarea | Estado |
+|---|---|---|
+| ✅ | Cargar 20y de datos (precios + macro + fundamentals) | Completado |
+| ✅ | P0: Expansión del grafo (148 tickers, 10 países, 4 zonas) | PR #3 |
+| ✅ | P1: Trading strategy (costes reales, Z adaptivo, hard stop) | PR #5 |
+| ✅ | P2.2: Credit spread delta (early warning) | PR #7 |
+| ✅ | P2.3: Earnings whisper + analyst target gap | PR #8 |
+| ✅ | P2.1: CB rate momentum | PR #9 |
+| ✅ | P3.1: UKF for s (sigma points, regime tracking) | PR #12 |
+| ✅ | P3.2: Persist Kalman state (Supabase JSONB) | PR #12 |
+| 🔴 | P4: Crisis backtest (COVID, 2022, Volmageddon) | Pendiente |
+| 🟡 | P4: Cross-validation (train 2020-2023, test 2024-2026) | Pendiente |
+| 🟡 | P4: Paper trading (6 meses de señales sin ejecución) | Pendiente |
+| 🟢 | Calibrar $\lambda^*(R)$ por régimen con OLS | Pendiente |
+| 🟢 | Grafo dirigido $\tilde{W}$ con Granger causality | Pendiente |
+| 🟢 | Eigenvalores complejos → ciclos sectoriales | Investigación |

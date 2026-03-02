@@ -1,5 +1,42 @@
 # Development Diary — GlobalMarketAnalyzer
 
+## 2026-03-02
+
+### Session: P0-P3 Implementation Sprint (6 PRs merged)
+
+**P0 — Graph expansion (PR #3)**
+- 80 → 148 tickers across 10 countries (US, FR, DE, UK, JP, KR, BR, IN, MX, SA)
+- 4 zones: USD (~50), EUR (~25), ASIA (~22), EM (~20)
+- 13 banks (HSBC, BNP.PA, SAN, ING, MUFG, SMFG, ITUB, HDB, etc.)
+- Sub-zones for FX coupling: Nordics, Latam, MENA
+
+**P1 — Trading strategy calibration (PR #5)**
+- Adaptive Z_ENTRY: VIX-based (lower in calm, higher in stress)
+- 3-tier cost model: 5bps US, 15bps intl, 25bps EM
+- Hard stop at -10% per position
+- Walk-forward composite weight optimization
+- **Result**: Sharpe 0.89 (down from 1.16 due to realistic costs), 3/3 trials positive
+
+**P2 — Information edge (PRs #7, #8, #9)**
+- P2.2: Credit spread delta — early warning signal (rate of widening > level)
+- P2.3: Asymmetric earnings surprise (-0.3 miss / +0.2 beat) + analyst target gap
+- P2.1: Central bank rate momentum (60-day FEDFUNDS change)
+- All defensive signals — ready for crisis, don't hurt calm performance
+
+**P3 — Extended Bayesian adaptation (PR #12)**
+- P3.1: UKF (Unscented Kalman Filter) for s parameter
+  - Merwe scaled sigma points, 1D state
+  - Heuristic s as prior attractor, prediction errors as measurement
+  - Feedback loop: heat_engine → spectral residuals → graph_builder → UKF update
+- P3.2: Kalman state persistence in Supabase (JSONB)
+  - save/load on each calibration cycle
+  - Eliminates 20-day warmup on restart
+
+**Issues closed**: #4 (P1), #6 (P2), #11 (P3)
+**Next priority**: P4 — Crisis validation (COVID, 2022 rate hikes, Volmageddon)
+
+---
+
 ## 2026-02-26
 
 ### Session: Model improvements + Audit + Phase 1 fixes
