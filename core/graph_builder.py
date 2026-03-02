@@ -15,6 +15,7 @@ Pipeline:
 import numpy as np
 import pandas as pd
 from db.database_manager import DatabaseManager
+from core.ukf import UKF_S
 import config
 
 
@@ -73,6 +74,13 @@ class GraphBuilder:
         self.credit_spread: pd.Series = pd.Series(dtype=float)
         self.credit_spread_delta: pd.Series = pd.Series(dtype=float)  # P2.2
         self.rate_momentum: pd.Series = pd.Series(dtype=float)  # P2.1
+
+        # P3.1: UKF for s — tracks regime transitions
+        self.ukf_s = UKF_S(s_init=S_BASE)
+        # P3.2: Try to restore saved UKF state
+        saved = db.load_kalman_state('ukf_s')
+        if saved:
+            self.ukf_s = UKF_S.from_dict(saved)
         self.inflation_daily: pd.Series = pd.Series(dtype=float)
         self.dxy: pd.Series = pd.Series(dtype=float)              # Dollar index
         self.copper: pd.Series = pd.Series(dtype=float)            # Industrial health
@@ -804,7 +812,8 @@ class GraphBuilder:
         else:
             oil_norm = 0.0
 
-        self.s = np.clip(
+        # Heuristic s (used as UKF prior attractor)
+        s_heuristic = np.clip(
             S_BASE
             - S_VIX_COEF    * vix_norm
             - S_DXY_COEF    * dxy_norm
@@ -816,6 +825,20 @@ class GraphBuilder:
             - S_OIL_COEF    * oil_norm,
             S_MIN, S_MAX
         )
+
+        # P3.1: UKF refines s using heuristic as prior
+        self.ukf_s.predict(prior_s=s_heuristic)
+
+        # If we have recent prediction errors, update UKF
+        if hasattr(self, '_last_prediction_errors') and len(self._last_prediction_errors) > 0:
+            self.ukf_s.update(self._last_prediction_errors)
+            self.s = self.ukf_s.get_s()
+        else:
+            # No prediction errors yet → use heuristic
+            self.s = s_heuristic
+
+        # P3.2: Persist UKF state
+        self.db.save_kalman_state('ukf_s', self.ukf_s.to_dict())
 
     # ─────────────────────────────────────────────────────────────
     # PASO 3: Laplaciano fraccional L^s

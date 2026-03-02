@@ -587,6 +587,11 @@ class HeatEngine:
         # Spectral residuals
         self.spectral_res = m_k_real - m_k_pred
 
+        # P3.1: Feed prediction errors to graph_builder for UKF s update
+        # Use last window of residuals as measurement signal
+        last_errors = self.spectral_res[-min(20, len(self.spectral_res)):]
+        self.gb._last_prediction_errors = np.mean(np.abs(last_errors), axis=0)
+
         # Store spectral velocity for diagnostics
         self.spectral_velocity = spectral_velocity
 

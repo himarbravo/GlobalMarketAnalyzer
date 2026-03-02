@@ -277,6 +277,35 @@ class DatabaseManager:
         except Exception:
             return None
 
+    # ─── KALMAN STATE (P3.2) ─────────────────────────────────────────────────
+
+    def save_kalman_state(self, filter_name: str, state: dict) -> bool:
+        """P3.2: Persist Kalman filter state to Supabase."""
+        try:
+            import json
+            self.client.table("kalman_state").upsert({
+                "filter_name": filter_name,
+                "state_json": json.dumps(state),
+            }, on_conflict="filter_name").execute()
+            return True
+        except Exception:
+            return False  # table may not exist yet
+
+    def load_kalman_state(self, filter_name: str) -> dict | None:
+        """P3.2: Load Kalman filter state from Supabase."""
+        try:
+            import json
+            r = (self.client.table("kalman_state")
+                 .select("state_json")
+                 .eq("filter_name", filter_name)
+                 .limit(1)
+                 .execute())
+            if r.data and r.data[0].get("state_json"):
+                return json.loads(r.data[0]["state_json"])
+        except Exception:
+            pass  # table may not exist yet
+        return None
+
     # ─── SIGNALS ─────────────────────────────────────────────────────────────
 
     def log_signal(self, ticker: str, date_str: str, signal: str,
