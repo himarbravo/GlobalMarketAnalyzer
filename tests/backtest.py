@@ -32,11 +32,11 @@ import config
 logging.basicConfig(level=logging.WARNING)
 
 # ── Config ──
-REFIT_DAYS = 40
-HOLD_MR = 10
-HOLD_COMP = 15
+REFIT_DAYS = 20
+HOLD_MR = 5
+HOLD_COMP = 7
 K_TOP = 5
-Z_ENTRY = 1.5
+Z_ENTRY = 0.8
 TX_BPS = 10
 INITIAL = 100_000
 N_TRIALS = 3
