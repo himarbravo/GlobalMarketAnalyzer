@@ -33,6 +33,7 @@ S_DXY_COEF      = 0.15   # DXY: flight to USD = contagio global
 S_SPREAD_COEF   = 0.15   # Yield curve: inversión = recesión
 S_CREDIT_COEF   = 0.15   # Credit spread: tensión deuda (level)
 S_CREDIT_DELTA  = 0.20   # P2.2: Credit spread delta: widening speed (early warning)
+S_RATE_MOM      = 0.15   # P2.1: Central bank rate momentum (hiking = stress)
 S_COPPER_COEF   = 0.10   # Copper: salud industrial (caída = estrés)
 S_OIL_COEF      = 0.05   # Oil: shock energético
 S_MIN           = 0.15
@@ -71,6 +72,7 @@ class GraphBuilder:
         self.yield_spread: pd.Series = pd.Series(dtype=float)
         self.credit_spread: pd.Series = pd.Series(dtype=float)
         self.credit_spread_delta: pd.Series = pd.Series(dtype=float)  # P2.2
+        self.rate_momentum: pd.Series = pd.Series(dtype=float)  # P2.1
         self.inflation_daily: pd.Series = pd.Series(dtype=float)
         self.dxy: pd.Series = pd.Series(dtype=float)              # Dollar index
         self.copper: pd.Series = pd.Series(dtype=float)            # Industrial health
@@ -220,7 +222,16 @@ class GraphBuilder:
 
             # ── Dim 3: Fed Rate (si disponible en macro_indicators) ──
             if 'fed_rate' in macro_df.columns:
-                self.dimensions['fed_rate'] = macro_df['fed_rate'].dropna()
+                fed = macro_df['fed_rate'].dropna()
+                self.dimensions['fed_rate'] = fed
+                # P2.1: Rate momentum — 3-month change and acceleration
+                if len(fed) > 60:
+                    # 60-day rate change (proxy for 3-month change)
+                    rate_change = fed.diff(60).dropna()
+                    self.rate_momentum = rate_change
+                elif len(fed) > 20:
+                    rate_change = fed.diff(20).dropna()
+                    self.rate_momentum = rate_change
 
         # ── Dim 2: Deuda soberana (estático, de config) ──
         self.dimensions['sovereign_debt'] = config.SOVEREIGN_DEBT_GDP.copy()
@@ -778,6 +789,11 @@ class GraphBuilder:
         # P2.2: Credit spread DELTA — widening speed as early warning
         credit_delta_val = _get_val(self.credit_spread_delta, reference_date)
         credit_delta_norm = _z_stress(credit_delta_val, self.credit_spread_delta) if len(self.credit_spread_delta) > 0 else 0.0
+
+        # P2.1: Rate momentum — hiking cycle = contractionary stress
+        rate_mom_val = _get_val(self.rate_momentum, reference_date)
+        rate_mom_norm = _z_stress(rate_mom_val, self.rate_momentum) if len(self.rate_momentum) > 0 else 0.0
+
         copper_norm = _z_stress(copper_val, self.copper, invert=True)
 
         # Oil: usar volatilidad reciente como stress
@@ -795,6 +811,7 @@ class GraphBuilder:
             - S_SPREAD_COEF * spread_norm
             - S_CREDIT_COEF * credit_norm
             - S_CREDIT_DELTA * credit_delta_norm   # P2.2: early warning
+            - S_RATE_MOM    * rate_mom_norm           # P2.1: CB rate momentum
             - S_COPPER_COEF * copper_norm
             - S_OIL_COEF    * oil_norm,
             S_MIN, S_MAX
