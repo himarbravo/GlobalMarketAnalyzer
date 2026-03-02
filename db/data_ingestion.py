@@ -436,7 +436,9 @@ def ingest_fred(db: DatabaseManager) -> int:
         "cpi_value":          "CPIAUCSL",
         "cpi_yoy":            "CPALTT01USM657N",
         "credit_spread_bbb":  "BAMLC0A4CBBB",
-        "fed_rate":           "FEDFUNDS",        # Federal Funds Effective Rate
+        "credit_spread_ig":   "BAMLC0A0CM",        # P2.2: Investment Grade OAS
+        "credit_spread_hy":   "BAMLH0A0HYM2",      # P2.2: High Yield OAS
+        "fed_rate":           "FEDFUNDS",            # Federal Funds Effective Rate
     }
 
     # Add international macro series from config

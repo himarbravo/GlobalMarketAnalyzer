@@ -31,7 +31,8 @@ S_BASE          = 0.85
 S_VIX_COEF      = 0.20   # VIX: miedo general
 S_DXY_COEF      = 0.15   # DXY: flight to USD = contagio global
 S_SPREAD_COEF   = 0.15   # Yield curve: inversión = recesión
-S_CREDIT_COEF   = 0.15   # Credit spread: tensión deuda
+S_CREDIT_COEF   = 0.15   # Credit spread: tensión deuda (level)
+S_CREDIT_DELTA  = 0.20   # P2.2: Credit spread delta: widening speed (early warning)
 S_COPPER_COEF   = 0.10   # Copper: salud industrial (caída = estrés)
 S_OIL_COEF      = 0.05   # Oil: shock energético
 S_MIN           = 0.15
@@ -69,6 +70,7 @@ class GraphBuilder:
         self.vix: pd.Series = pd.Series(dtype=float)
         self.yield_spread: pd.Series = pd.Series(dtype=float)
         self.credit_spread: pd.Series = pd.Series(dtype=float)
+        self.credit_spread_delta: pd.Series = pd.Series(dtype=float)  # P2.2
         self.inflation_daily: pd.Series = pd.Series(dtype=float)
         self.dxy: pd.Series = pd.Series(dtype=float)              # Dollar index
         self.copper: pd.Series = pd.Series(dtype=float)            # Industrial health
@@ -233,15 +235,21 @@ class GraphBuilder:
                 self.sector_map[t] = s
                 self.sectors.setdefault(s, []).append(t)
 
-        # Credit spread: proxy de tensión en mercado de deuda
-        # Usamos los precios de HYG (high yield) vs TLT (treasuries)
-        # Un spread creciente = tensión económica
+        # Credit spread: real FRED IG/HY if available, else HYG/TLT proxy
         try:
-            hyg = self.db.get_prices("HYG", column="close")
-            tlt = self.db.get_prices("TLT", column="close")
-            if not hyg.empty and not tlt.empty:
-                ratio = hyg["close"] / tlt["close"].reindex(hyg.index).ffill()
-                self.credit_spread = -ratio.pct_change(20).dropna()
+            fred_spread = self.db.get_macro_column('credit_spread_hy')
+            if fred_spread is not None and len(fred_spread) > 20:
+                self.credit_spread = fred_spread.dropna()
+                # P2.2: delta = 5-day rate of change (widening speed)
+                self.credit_spread_delta = fred_spread.pct_change(5).dropna()
+            else:
+                # Fallback: HYG/TLT price ratio proxy
+                hyg = self.db.get_prices("HYG", column="close")
+                tlt = self.db.get_prices("TLT", column="close")
+                if not hyg.empty and not tlt.empty:
+                    ratio = hyg["close"] / tlt["close"].reindex(hyg.index).ffill()
+                    self.credit_spread = -ratio.pct_change(20).dropna()
+                    self.credit_spread_delta = self.credit_spread.pct_change(5).dropna()
         except Exception:
             pass
 
@@ -766,6 +774,10 @@ class GraphBuilder:
         dxy_norm    = _z_stress(dxy_val, self.dxy)
         spread_norm = _z_stress(spread_val, self.yield_spread, invert=True)
         credit_norm = _z_stress(credit_val, self.credit_spread) if len(self.credit_spread) > 0 else 0.0
+
+        # P2.2: Credit spread DELTA — widening speed as early warning
+        credit_delta_val = _get_val(self.credit_spread_delta, reference_date)
+        credit_delta_norm = _z_stress(credit_delta_val, self.credit_spread_delta) if len(self.credit_spread_delta) > 0 else 0.0
         copper_norm = _z_stress(copper_val, self.copper, invert=True)
 
         # Oil: usar volatilidad reciente como stress
@@ -782,6 +794,7 @@ class GraphBuilder:
             - S_DXY_COEF    * dxy_norm
             - S_SPREAD_COEF * spread_norm
             - S_CREDIT_COEF * credit_norm
+            - S_CREDIT_DELTA * credit_delta_norm   # P2.2: early warning
             - S_COPPER_COEF * copper_norm
             - S_OIL_COEF    * oil_norm,
             S_MIN, S_MAX
