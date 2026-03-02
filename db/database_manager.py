@@ -259,6 +259,24 @@ class DatabaseManager:
                .execute())
         return res.data[0] if res.data else None
 
+    def get_macro_column(self, column: str) -> Optional[pd.Series]:
+        """P2.2: Returns a single macro column as a pd.Series indexed by date."""
+        try:
+            res = (self.client.table("macro_indicators")
+                   .select(f"date,{column}")
+                   .not_.is_(column, "null")
+                   .order("date", desc=False)
+                   .limit(2000)
+                   .execute())
+            if not res.data:
+                return None
+            df = pd.DataFrame(res.data)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            return df[column].astype(float)
+        except Exception:
+            return None
+
     # ─── SIGNALS ─────────────────────────────────────────────────────────────
 
     def log_signal(self, ticker: str, date_str: str, signal: str,
