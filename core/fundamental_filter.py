@@ -300,11 +300,13 @@ class FundamentalFilter:
         except Exception:
             pass
 
-        # ── Lente 4: Earnings surprise (evento, decae en 20 días) ──
+        # ── Lente 4: Earnings surprise + analyst whisper (P2.3) ──
         s_earnings = np.ones(N)
         try:
             from datetime import datetime, timedelta
             cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+
+            # 4a: EPS surprise with asymmetric decay
             r = self.db.client.table("earnings_calendar").select(
                 "ticker, eps_surprise, earnings_date"
             ).gte("earnings_date", cutoff).execute()
@@ -314,15 +316,39 @@ class FundamentalFilter:
                     if t in tickers and row.get("eps_surprise") is not None:
                         idx = tickers.index(t)
                         surprise = float(row["eps_surprise"])
-                        # Days since earnings (decay factor)
                         days_ago = (datetime.now() -
                                     datetime.strptime(row["earnings_date"], "%Y-%m-%d")).days
-                        decay = max(0, 1.0 - days_ago / 20.0)
-                        # Surprise > 0 → boost, < 0 → penalize
                         if surprise > 5:   # beat by >5%
+                            # Positive: +0.2 boost, 20-day decay
+                            decay = max(0, 1.0 - days_ago / 20.0)
                             s_earnings[idx] = 1.0 + 0.2 * decay
                         elif surprise < -5:  # missed by >5%
-                            s_earnings[idx] = 1.0 - 0.2 * decay
+                            # P2.3: Negative surprise stronger (-0.3) with faster decay (10 days)
+                            decay = max(0, 1.0 - days_ago / 10.0)
+                            s_earnings[idx] = 1.0 - 0.3 * decay
+
+            # 4b: Analyst target price gap (whisper signal)
+            # When price is far below analyst target → cheap → buy signal
+            # When price is far above analyst target → expensive → sell signal
+            for i, t in enumerate(tickers):
+                try:
+                    fund = self.db.client.table("fundamentals").select(
+                        "target_mean_price, market_cap, shares_outstanding"
+                    ).eq("ticker", t).order("report_date", desc=True).limit(1).execute()
+                    if fund.data and fund.data[0].get("target_mean_price"):
+                        target = float(fund.data[0]["target_mean_price"])
+                        mc = fund.data[0].get("market_cap")
+                        shares = fund.data[0].get("shares_outstanding")
+                        if mc and shares and shares > 0:
+                            price = mc / shares
+                            if price > 0 and target > 0:
+                                gap = (target - price) / price  # positive = undervalued
+                                # >15% below target → modest boost
+                                # >15% above target → modest penalty
+                                whisper_adj = np.clip(gap * 0.3, -0.15, 0.15)
+                                s_earnings[i] *= (1.0 + whisper_adj)
+                except Exception:
+                    continue
         except Exception:
             pass
 
