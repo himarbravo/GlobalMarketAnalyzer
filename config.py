@@ -47,11 +47,33 @@ TICKERS = {
     "INTL_DEV":      ["EWG", "EWJ", "EWU", "EWC"],
     "INTL_EM":       ["FXI", "INDA", "EWZ", "EWT"],
     "INTL_STOCKS":   ["BABA", "SAP", "NVO", "LVMHF", "TTE", "SIE", "AZN",
-                      "SONY", "TM"],
-    "INTL_BANKS":    ["HSBC", "BNP.PA", "SAN", "ING",      # EUR banks
-                      "MUFG", "SMFG",                      # JP banks
-                      "ITUB", "HDB"],                       # EM banks
-    "INTL_INDUSTRY": ["VALE", "PBR"],                       # EM industry
+                      "SONY", "TM",
+                      # P0 expansion
+                      "ASML", "NESN.SW", "ROG.SW", "MC.PA",    # EUR productive
+                      "ENEL.MI", "ISP.MI", "RACE",             # Italy
+                      "VOLV-B.ST", "ERIC-B.ST",               # Nordics
+                      "005930.KS", "000660.KS",               # Korea (Samsung, SK Hynix)
+                      "BHP", "CBA.AX", "WBC.AX",              # Australia
+                      "GRAB", "SE",                            # SE Asia
+                      ],
+    "INTL_BANKS":    ["HSBC", "BNP.PA", "SAN", "ING",         # EUR banks
+                      "MUFG", "SMFG",                         # JP banks
+                      "ITUB", "HDB",                           # EM banks
+                      # P0 expansion
+                      "UCG.MI", "ISP.MI",                      # Italy banks
+                      "UBS", "CS",                             # Swiss banks
+                      "KB", "SHG",                             # Korea banks
+                      "NAB.AX",                                # Australia bank
+                      "BBVA",                                  # Spain bank
+                      ],
+    "INTL_INDUSTRY": ["VALE", "PBR",                           # EM industry
+                      # P0 expansion
+                      "AMX", "FEMSA",                          # Mexico
+                      "BIDU", "JD",                            # China tech
+                      "2222.SR",                               # Saudi Aramco
+                      "TLKM.JK",                               # Indonesia telecom
+                      "NPN.JO", "SOL.JO",                      # South Africa
+                      ],
     "CRYPTO":        ["BTC-USD", "ETH-USD"],
     "BONDS_GOVT":    ["TLT", "IEF", "SHY"],
     "BONDS_CORP":    ["LQD", "HYG"],
@@ -85,6 +107,20 @@ ASSET_TYPE_MAP.update({
     "HSBC": "equity", "BNP.PA": "equity", "SAN": "equity", "ING": "equity",
     "MUFG": "equity", "SMFG": "equity",
     "ITUB": "equity", "HDB": "equity", "VALE": "equity", "PBR": "equity",
+    # P0 expansion
+    "ASML": "equity", "NESN.SW": "equity", "ROG.SW": "equity", "MC.PA": "equity",
+    "ENEL.MI": "equity", "ISP.MI": "equity", "RACE": "equity",
+    "VOLV-B.ST": "equity", "ERIC-B.ST": "equity",
+    "005930.KS": "equity", "000660.KS": "equity",
+    "BHP": "equity", "CBA.AX": "equity", "WBC.AX": "equity", "NAB.AX": "equity",
+    "GRAB": "equity", "SE": "equity",
+    "UCG.MI": "equity", "UBS": "equity", "CS": "equity",
+    "KB": "equity", "SHG": "equity",
+    "BBVA": "equity",
+    "AMX": "equity", "FEMSA": "equity",
+    "BIDU": "equity", "JD": "equity",
+    "2222.SR": "equity", "TLKM.JK": "equity",
+    "NPN.JO": "equity", "SOL.JO": "equity",
 })
 
 
@@ -96,8 +132,12 @@ NODE_ROLES = {
     "JPM": "bank", "BAC": "bank", "GS": "bank", "MS": "bank", "WFC": "bank",
     # EUR banks
     "HSBC": "bank", "BNP.PA": "bank", "SAN": "bank", "ING": "bank",
-    # JP banks
+    "UCG.MI": "bank", "ISP.MI": "bank", "UBS": "bank", "CS": "bank",
+    "BBVA": "bank",
+    # ASIA banks
     "MUFG": "bank", "SMFG": "bank",
+    "KB": "bank", "SHG": "bank",
+    "NAB.AX": "bank", "CBA.AX": "bank", "WBC.AX": "bank",
     # EM banks
     "ITUB": "bank", "HDB": "bank",
 }
@@ -106,22 +146,48 @@ NODE_ROLES = {
 # País de cotización/exposición de cada ticker no-US
 TICKER_COUNTRY = {
     # China
-    "BABA": "CN", "FXI": "CN",
-    # Europe
+    "BABA": "CN", "FXI": "CN", "BIDU": "CN", "JD": "CN",
+    # Europe — Germany
     "SAP": "DE", "EWG": "DE", "SIE": "DE",
+    # Europe — Nordics
     "NVO": "DK",
+    "VOLV-B.ST": "SE", "ERIC-B.ST": "SE",
+    # Europe — Netherlands
     "ASML": "NL", "ING": "NL",
+    # Europe — UK
     "EWU": "UK", "HSBC": "UK", "AZN": "UK",
-    "BNP.PA": "FR", "LVMHF": "FR", "TTE": "FR",
-    "SAN": "ES",
-    # Asia
+    # Europe — France
+    "BNP.PA": "FR", "LVMHF": "FR", "TTE": "FR", "MC.PA": "FR",
+    # Europe — Spain
+    "SAN": "ES", "BBVA": "ES",
+    # Europe — Italy
+    "ENEL.MI": "IT", "ISP.MI": "IT", "UCG.MI": "IT", "RACE": "IT",
+    # Europe — Switzerland
+    "NESN.SW": "CH", "ROG.SW": "CH", "UBS": "CH", "CS": "CH",
+    # Asia — Taiwan
     "TSM": "TW", "EWT": "TW",
+    # Asia — Japan
     "EWJ": "JP", "MUFG": "JP", "SMFG": "JP", "SONY": "JP", "TM": "JP",
+    # Asia — Korea
+    "005930.KS": "KR", "000660.KS": "KR", "KB": "KR", "SHG": "KR",
+    # Asia — Australia
+    "BHP": "AU", "CBA.AX": "AU", "WBC.AX": "AU", "NAB.AX": "AU",
+    # Asia — SE Asia
+    "GRAB": "SG", "SE": "SG",
     # Americas (non-US)
     "EWC": "CA",
-    # Emerging Markets
+    # Emerging Markets — Brazil
     "EWZ": "BR", "ITUB": "BR", "VALE": "BR", "PBR": "BR",
+    # Emerging Markets — India
     "INDA": "IN", "HDB": "IN",
+    # Emerging Markets — Mexico
+    "AMX": "MX", "FEMSA": "MX",
+    # Emerging Markets — Saudi Arabia
+    "2222.SR": "SA",
+    # Emerging Markets — Indonesia
+    "TLKM.JK": "ID",
+    # Emerging Markets — South Africa
+    "NPN.JO": "ZA", "SOL.JO": "ZA",
 }
 # Todo ticker NO listado aquí → country = "US"
 
@@ -130,11 +196,14 @@ TICKER_COUNTRY = {
 # Zonas monetarias: cada zona tiene su propio Laplaciano y campo m
 # Tickers se asignan a la zona de su país (via TICKER_COUNTRY)
 COUNTRY_TO_ZONE = {
-    "US": "USD", "CA": "USD",       # Norteamérica dolarizada
+    "US": "USD", "CA": "USD",                              # Norteamérica dolarizada
     "DE": "EUR", "NL": "EUR", "DK": "EUR", "UK": "EUR",
-    "FR": "EUR", "ES": "EUR",       # Europa
-    "JP": "ASIA", "CN": "ASIA", "TW": "ASIA",            # Asia
-    "BR": "EM", "IN": "EM",                               # Emergentes
+    "FR": "EUR", "ES": "EUR",
+    "IT": "EUR", "CH": "EUR", "SE": "EUR",                # P0: Italia, Suiza, Suecia
+    "JP": "ASIA", "CN": "ASIA", "TW": "ASIA",
+    "KR": "ASIA", "AU": "ASIA", "SG": "ASIA",            # P0: Corea, Australia, Singapur
+    "BR": "EM", "IN": "EM",
+    "MX": "EM", "SA": "EM", "ID": "EM", "ZA": "EM",     # P0: México, Arabia, Indonesia, Sudáfrica
 }
 # Todo país no listado → "USD"
 
@@ -152,6 +221,10 @@ SOVEREIGN_DEBT_GDP = {
     "CN": 0.80, "TW": 0.30, "DK": 0.35, "UK": 1.00,
     "BR": 0.75, "IN": 0.85, "CA": 0.65,
     "FR": 1.10, "ES": 1.05,
+    # P0 expansion
+    "IT": 1.40, "CH": 0.40, "SE": 0.35,
+    "KR": 0.55, "AU": 0.45, "SG": 1.30,
+    "MX": 0.55, "SA": 0.25, "ID": 0.40, "ZA": 0.70,
 }
 
 # Dim 3: Tipos de interés por banco central (FRED series)
@@ -187,11 +260,16 @@ INTL_MACRO_SERIES = {
 COUNTRY_RATE_SERIES = {
     "US": "FEDFUNDS", "CA": "FEDFUNDS",     # USD zone
     "DE": "ECBDFR", "NL": "ECBDFR", "DK": "ECBDFR",
-    "FR": "ECBDFR", "ES": "ECBDFR",          # EUR zone
+    "FR": "ECBDFR", "ES": "ECBDFR",
+    "IT": "ECBDFR", "CH": "ECBDFR", "SE": "ECBDFR",  # P0: EUR zone
     "JP": "IRSTCI01JPM156N",                 # Asia zone
     "UK": "IUDSOIA",                         # UK
+    "KR": "IRSTCI01JPM156N", "AU": "FEDFUNDS",  # P0: proxies
+    "SG": "FEDFUNDS",                             # P0: proxy
     "CN": "FEDFUNDS", "TW": "FEDFUNDS",     # proxy: USD-linked
     "BR": "FEDFUNDS", "IN": "FEDFUNDS",     # proxy: USD-linked
+    "MX": "FEDFUNDS", "SA": "FEDFUNDS",     # P0: EM proxy
+    "ID": "FEDFUNDS", "ZA": "FEDFUNDS",     # P0: EM proxy
 }
 
 # Legacy alias
