@@ -465,6 +465,126 @@ Con 9+ parámetros y 20 años de datos:
 | ✅ | P4.1: Crisis backtest (COVID, 2022, Volmageddon) | PR #TBD |
 | ✅ | P4.2: Cross-validation (3-fold train/test, overfitting detection) | PR #TBD |
 | ✅ | P4.3: Paper trading (daily signals → Supabase, --review scoring) | PR #TBD |
+| ✅ | P5: Regime-conditional execution (s-gate) | PR #TBD |
+| ✅ | P6: VIX-based regime gate + Pairs + Combo strategy | feature/regime-gate-investigation |
+| 🔵 | **P7: Reversibility detection (modal overlap + entropy)** | **Sec. 13 below** |
 | 🟢 | Calibrar $\lambda^*(R)$ por régimen con OLS | Pendiente |
 | 🟢 | Grafo dirigido $\tilde{W}$ con Granger causality | Pendiente |
 | 🟢 | Eigenvalores complejos → ciclos sectoriales | Investigación |
+
+---
+
+## 13. Reversibilidad — Overlap Modal y Entropía del Grafo
+
+> [!IMPORTANT]
+> **Problema central**: los z-scores del modelo miden *cuánto* se desvía un activo del equilibrio, pero no saben si ese equilibrio **sigue existiendo**. El hit rate es ~50% porque la mitad de las desviaciones son temporales (reversibles) y la otra mitad son estructurales (irreversibles). Necesitamos un "chivato" que distinga los dos casos.
+
+### 13.1 El problema: dos tipos de desviación
+
+Una desviación $z_i < 0$ (activo "frío") puede significar:
+
+**Caso A — Dislocation temporal (reversible)**:
+El activo cayó por un shock exógeno (pánico general, sell-off regional), pero la estructura del grafo no cambió. Las correlaciones son las mismas, los modos propios del Laplaciano se mantienen. El equilibrio sigue válido → el activo volverá a él → el trade de mean-reversion funciona.
+
+**Caso B — Cambio estructural (irreversible)**:
+El activo cayó porque algo fundamental cambió (pérdida de competencia, regulación, cambio de sector). Las correlaciones con sus vecinos están mutando. Los modos propios del Laplaciano han rotado. El viejo equilibrio ya no existe → hay un nuevo equilibrio → el trade falla.
+
+### 13.2 Overlap Modal
+
+Los eigenvectores $\Phi = [\phi_1, \phi_2, ..., \phi_N]$ del Laplaciano $L$ definen los **modos colectivos** del mercado. Cada modo agrupa activos que se mueven juntos.
+
+Comparamos los modos entre dos ventanas temporales (separadas por $\Delta t = 20$ días de rebalanceo):
+
+$$\mathcal{O}_k = |\langle \phi_k(t - \Delta t) \,|\, \phi_k(t) \rangle|^2 \in [0, 1]$$
+
+| $\mathcal{O}_k$ | Interpretación | Acción |
+|---|---|---|
+| $\approx 1$ | Modo estable, estructura intacta | Los z-scores en este modo son fiables → **TRADEAR** |
+| $\approx 0$ | Modo rotado, estructura mutó | El equilibrio antiguo no sirve → **NO TRADEAR** |
+
+#### Overlap por activo
+
+Cada activo $i$ participa en varios modos con peso $\phi_{ki}^2$. El overlap "efectivo" del activo $i$:
+
+$$\mathcal{O}_{eff,i} = \sum_{k=1}^{K} \phi_{ki}^2 \cdot \mathcal{O}_k$$
+
+donde $K$ son los primeros modos significativos (ej: los que acumulan 90% de la varianza).
+
+- $\mathcal{O}_{eff,i}$ alto → el "vecindario modal" del activo es estable → su z-score es fiable
+- $\mathcal{O}_{eff,i}$ bajo → el activo está en una zona del grafo que está mutando → no fiar del z-score
+
+#### Nota sobre degeneración
+
+Cuando dos eigenvalues $\lambda_k \approx \lambda_{k+1}$ están cercanos, sus eigenvectores pueden rotar libremente sin que la estructura del grafo cambie realmente. Para evitar falsos positivos, se usa el **overlap de subespacio**:
+
+$$\mathcal{O}_{sub}(k, k+1) = \text{Tr}(P_{old} \cdot P_{new})$$
+
+donde $P = \phi_k \phi_k^T + \phi_{k+1} \phi_{k+1}^T$ es el proyector del subespacio degenerado.
+
+### 13.3 Entropía de Von Neumann del Grafo
+
+La entropía mide cuánta **estructura** tiene el grafo vs cuánta **aleatoriedad**:
+
+$$S(G) = -\text{Tr}(\rho \ln \rho) = -\sum_{k=1}^{N} \tilde{\lambda}_k \ln \tilde{\lambda}_k$$
+
+donde $\rho = \tilde{L} / \text{Tr}(\tilde{L})$ es la **matriz densidad** del grafo (Laplaciano normalizado), y $\tilde{\lambda}_k = \lambda_k / \sum \lambda_j$ son los eigenvalues normalizados.
+
+| $S$ | Interpretación |
+|---|---|
+| $S$ baja | Pocos modos dominan → mercado organizado en bloques (tech, energy, etc.) |
+| $S$ alta | Todos los modos contribuyen igual → mercado "aleatorio", sin estructura clara |
+
+#### Producción de entropía (chivato global)
+
+$$\Delta S = S(t) - S(t - \Delta t)$$
+
+| $\Delta S$ | Interpretación | Acción |
+|---|---|---|
+| $|\Delta S| \approx 0$ | No hubo producción de entropía → proceso **reversible** | Equilibrio válido → TRADEAR |
+| $|\Delta S|$ grande | Entropía producida → proceso **irreversible** | Nuevo equilibrio → NO TRADEAR |
+
+> [!NOTE]
+> En termodinámica, $\Delta S = 0$ define un proceso reversible: el sistema puede volver a su estado original. $\Delta S > 0$ implica irreversibilidad: información se perdió y el estado original es inalcanzable. Exactamente la distinción que necesitamos.
+
+### 13.4 Filtro combinado de reversibilidad
+
+```
+Para cada refit day (cada 20 días):
+
+  1. CHIVATO GLOBAL: Calcular ΔS
+     → Si |ΔS| > σ_S (desviación estándar histórica de ΔS):
+       El grafo está en transición → MODO REFUGIO (no abrir trades nuevos)
+
+  2. CHIVATO LOCAL: Para cada activo con |z_i| > threshold:
+     a. Calcular O_eff,i (overlap modal efectivo)
+     b. Si O_eff,i > 0.7: la zona del activo es estable → TRADEAR
+        Si O_eff,i < 0.7: la zona del activo mutó → SKIP
+
+  3. RESULTADO: solo tradear activos que pasan AMBOS filtros:
+     → ΔS global bajo (mercado estable)
+     → O_eff,i local alto (activo en modo estable)
+```
+
+### 13.5 Diagrama
+
+```mermaid
+graph TD
+    Z[z-score activo i] --> F{¿|z_i| > threshold?}
+    F -->|No| SKIP1[No tradear: señal débil]
+    F -->|Sí| G{ΔS global < σ?}
+    G -->|No| SKIP2[No tradear: grafo en transición]
+    G -->|Sí| H{O_eff,i > 0.7?}
+    H -->|No| SKIP3[No tradear: modo rotó<br>cambio estructural]
+    H -->|Sí| TRADE[✅ TRADEAR<br>dislocation reversible]
+```
+
+### 13.6 Conexión con la física del modelo
+
+| Concepto físico | Variable en el grafo | Qué detecta |
+|---|---|---|
+| **Modos normales** | Eigenvectores $\phi_k$ | Patrones colectivos de correlación |
+| **Energía del modo** | Eigenvalue $\lambda_k$ | Cuánta "tensión" hay en ese modo |
+| **Rotación modal** | $\mathcal{O}_k$ | Cambio estructural en las correlaciones |
+| **Entropía** | $S(G)$ | Orden vs desorden global del mercado |
+| **Producción de entropía** | $\Delta S$ | Irreversibilidad (¿se puede volver atrás?) |
+| **z-score filtrado** | $z_i \cdot \mathbb{1}(\mathcal{O}_{eff,i} > 0.7)$ | Señal de trading con filtro de validez |
