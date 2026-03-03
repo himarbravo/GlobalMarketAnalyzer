@@ -32,3 +32,6 @@ data/
 .idea/
 .cache/
 .cache/
+
+logs/
+.cache/
