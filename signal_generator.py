@@ -172,6 +172,22 @@ class SignalGenerator:
         lambda_eq = getattr(self.engine, 'lambda_eq', 18.0)
         lambda_contagion = getattr(self.engine, 'lambda_contagion', np.zeros(self.gb.N))
 
+        # P5: Execution mode — regime-conditional gate (s + ds/dt)
+        # NOTE: Investigating better graph-endogenous criteria (see GitHub issue)
+        ds_dt = getattr(self.gb, 'ds_dt', 0.0)
+        refuge_sig = getattr(self.engine, 'refuge_signal', 0.0)
+        s = self.gb.s
+
+        if s < 0.40 or refuge_sig > 0.5 or ds_dt < -0.05:
+            execution_mode = "refuge"
+        elif s < 0.70 or ds_dt < -0.02:
+            execution_mode = "defensive"
+        else:
+            execution_mode = "alpha"
+
+        logger.info(f"  P5 execution_mode: {execution_mode} "
+                    f"(s={s:.3f}, ds/dt={ds_dt:+.4f}, refuge={refuge_sig:.2f})")
+
         for i, ticker in enumerate(self.gb.tickers):
             score = asset_scores.get(ticker, 0.0)
             z = float(z_real[-1, i]) if len(z_real) > 0 else 0.0
@@ -262,6 +278,7 @@ class SignalGenerator:
                 "price":              price,
                 "strategy":           "water_landscape_v1",
                 "regime":             current_regime,
+                "execution_mode":     execution_mode,     # P5
                 "technical_score":    round(float(composite), 3),
                 "fundamental_score":  round(float(F * 100), 3),
                 "macro_score":        round(float(s * 100), 1),

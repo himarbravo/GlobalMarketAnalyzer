@@ -119,6 +119,8 @@ class GraphBuilder:
         self.eigenvalues: np.ndarray = np.array([])   # (N,)
         self.eigenvectors: np.ndarray = np.array([])  # (N, N)
         self.s: float = S_BASE
+        self.s_prev: float = S_BASE        # P5: previous s for ds/dt
+        self.ds_dt: float = 0.0            # P5: rate of change of s
         self.fractional_laplacian: np.ndarray = np.array([])  # L^s (N, N)
         self.scale_signals: dict = {}                 # señal por capa temporal
 
@@ -150,7 +152,18 @@ class GraphBuilder:
         self.tickers = sorted(asset_info.keys())
         self.N = len(self.tickers)
 
+        # --- Precios (close) ---
+        self.prices = self.db.get_prices_multi(
+            self.tickers, start_date=start_date, end_date=end_date,
+            column="close"
+        )
+        # Eliminar tickers sin datos
+        self.prices = self.prices.dropna(axis=1, how="all")
+        self.tickers = list(self.prices.columns)
+        self.N = len(self.tickers)
+
         # ── Clasificar nodos por rol, país y zona monetaria ──
+        # MUST be after ticker filtering so indices match self.tickers
         self.node_roles = [config.get_node_role(t) for t in self.tickers]
         self.node_countries = [config.get_country(t) for t in self.tickers]
         self.node_zones = [config.get_zone(t) for t in self.tickers]
@@ -161,16 +174,6 @@ class GraphBuilder:
         self.currency_zones = {}
         for i, z in enumerate(self.node_zones):
             self.currency_zones.setdefault(z, []).append(i)
-
-        # --- Precios (close) ---
-        self.prices = self.db.get_prices_multi(
-            self.tickers, start_date=start_date, end_date=end_date,
-            column="close"
-        )
-        # Eliminar tickers sin datos
-        self.prices = self.prices.dropna(axis=1, how="all")
-        self.tickers = list(self.prices.columns)
-        self.N = len(self.tickers)
 
         # --- Indicadores técnicos ---
         self.vol_20d = self.db.get_prices_multi(
@@ -761,8 +764,12 @@ class GraphBuilder:
                 v = series.iloc[-1]
             return v if pd.notna(v) else None
 
+        # P5: track previous s for ds/dt computation
+        self.s_prev = self.s
+
         if len(self.vix) == 0:
             self.s = S_BASE
+            self.ds_dt = 0.0
             return
 
         vix_val    = _get_val(self.vix, reference_date)
@@ -836,6 +843,9 @@ class GraphBuilder:
         else:
             # No prediction errors yet → use heuristic
             self.s = s_heuristic
+
+        # P5: compute ds/dt (rate of change)
+        self.ds_dt = self.s - self.s_prev
 
         # P3.2: Persist UKF state
         self.db.save_kalman_state('ukf_s', self.ukf_s.to_dict())

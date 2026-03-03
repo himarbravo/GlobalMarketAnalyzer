@@ -125,7 +125,7 @@ The equation is the same in all regimes. What changes are the **parameters**:
 
 ```bash
 # Daily signals
-python core/signal_generator.py
+python signal_generator.py
 
 # Basic diagnostics
 python tests/model_diagnostic.py
@@ -135,6 +135,18 @@ python core/regime_calibrator.py
 
 # Full walk-forward tests
 python tests/historical_tests.py
+
+# P4: Crisis backtest (COVID, 2022, Volmageddon)
+python tests/crisis_backtest.py
+
+# P4: Cross-validation (3-fold train/test)
+python tests/crossval_train_test.py
+
+# P4: Paper trading (daily signals without execution)
+python paper_trader.py
+
+# P4: Review past paper trades vs realized returns
+python paper_trader.py --review
 ```
 
 ## Documentation
@@ -158,6 +170,9 @@ python tests/historical_tests.py
 - **P2.1**: Central bank rate momentum — PR #9
 - **P3.1**: UKF for s (regime transition tracking via sigma points) — PR #12
 - **P3.2**: Kalman state persistence (Supabase JSONB) — PR #12
+- **P4.1**: Crisis backtest — walk-forward on COVID, 2022 bear, Volmageddon with UKF/credit anticipation analysis
+- **P4.2**: Cross-validation — 3-fold temporal train/test split, frozen-parameter OOS evaluation, overfitting detection
+- **P4.3**: Paper trading — daily signal generation + Supabase logging with `--review` scoring mode
 
 ### Backtest Results (with realistic costs)
 
@@ -185,16 +200,11 @@ Alpha lives in **cross-zone latency** (days-weeks to arbitrage between jurisdict
 
 ### 🟡 Current Limitations
 
-1. **No crisis validation** — only tested on 2025-2026 (bull market)
-2. **Composite strategy loses** — weights 0.4z/0.3F/0.3δ need better optimization
-3. **Defensive signals untested** — credit spread delta, rate momentum ready but no stress events in test window
-4. **UKF lacks stress data** — regime transition detection can't be validated without crisis periods
+1. **Composite strategy loses** — weights 0.4z/0.3F/0.3δ need better optimization
+2. **Paper trading in progress** — 6-month live signal accumulation started, review with `--review`
 
-### Next: P4 — Validation (Critical)
+### Next Steps
 
-**P4 — Crisis validation and paper trading**
-- [ ] Crisis backtest: COVID Mar 2020, Fed rate hikes 2022, Volmageddon 2018
-- [ ] Cross-validation: train 2020-2023, test 2024-2026 and vice versa
-- [ ] Paper trading: 6 months of live signals without execution
-- [ ] Stress test: verify credit spread delta catches COVID-style drawdown
-- [ ] Verify UKF s tracking: does s drop before VIX spikes?
+- [ ] Calibrar $\lambda^*(R)$ por régimen con OLS
+- [ ] Grafo dirigido $\tilde{W}$ con Granger causality
+- [ ] Eigenvalores complejos → ciclos sectoriales

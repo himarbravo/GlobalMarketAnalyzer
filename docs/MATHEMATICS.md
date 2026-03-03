@@ -462,9 +462,9 @@ Con 9+ parámetros y 20 años de datos:
 | ✅ | P2.1: CB rate momentum | PR #9 |
 | ✅ | P3.1: UKF for s (sigma points, regime tracking) | PR #12 |
 | ✅ | P3.2: Persist Kalman state (Supabase JSONB) | PR #12 |
-| 🔴 | P4: Crisis backtest (COVID, 2022, Volmageddon) | Pendiente |
-| 🟡 | P4: Cross-validation (train 2020-2023, test 2024-2026) | Pendiente |
-| 🟡 | P4: Paper trading (6 meses de señales sin ejecución) | Pendiente |
+| ✅ | P4.1: Crisis backtest (COVID, 2022, Volmageddon) | PR #TBD |
+| ✅ | P4.2: Cross-validation (3-fold train/test, overfitting detection) | PR #TBD |
+| ✅ | P4.3: Paper trading (daily signals → Supabase, --review scoring) | PR #TBD |
 | 🟢 | Calibrar $\lambda^*(R)$ por régimen con OLS | Pendiente |
 | 🟢 | Grafo dirigido $\tilde{W}$ con Granger causality | Pendiente |
 | 🟢 | Eigenvalores complejos → ciclos sectoriales | Investigación |
