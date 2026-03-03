@@ -588,3 +588,115 @@ graph TD
 | **Entropía** | $S(G)$ | Orden vs desorden global del mercado |
 | **Producción de entropía** | $\Delta S$ | Irreversibilidad (¿se puede volver atrás?) |
 | **z-score filtrado** | $z_i \cdot \mathbb{1}(\mathcal{O}_{eff,i} > 0.7)$ | Señal de trading con filtro de validez |
+
+### 13.7 Descomposición Jerárquica en Subgrafos
+
+> [!IMPORTANT]
+> **Problema del ruido**: con 102 activos y 300 días, la relación observaciones/parámetros de la correlación es ~0.06. Muchos modos del Laplaciano son **ruido estadístico**, no patrones reales. Los z-scores basados en modos ruidosos generan trades aleatorios (hit rate 50%).
+
+**Solución**: descomponer el grafo global en **clusters naturales** (subgrafos), cada uno con su propio Laplaciano local. Dentro de un subgrafo de ~15 activos, la relación observaciones/parámetros sube a ~300/105 ≈ 3, mucho más favorable.
+
+#### Algoritmo de partición espectral
+
+1. Calcular los eigenvalues del Laplaciano global: $\lambda_0 \leq \lambda_1 \leq ... \leq \lambda_{N-1}$
+
+2. Encontrar el primer **gap espectral** significativo:
+
+$$k^* = \arg\max_{k \in [2, K_{max}]} \frac{\lambda_{k+1} - \lambda_k}{\lambda_k}$$
+
+Los primeros $k^*$ eigenvalues definen $k^*$ clusters naturales. El gap indica la frontera entre estructura real y ruido.
+
+3. Construir la **matriz de embedding** con los primeros $k^*$ eigenvectores:
+
+$$X = [\phi_1 | \phi_2 | ... | \phi_{k^*}] \in \mathbb{R}^{N \times k^*}$$
+
+Cada fila $X_i$ es la "coordenada espectral" del activo $i$ en el espacio de modos.
+
+4. Agrupar filas similares (k-means sobre $X$) → asignación de cada activo a un cluster.
+
+```
+Ejemplo con 102 activos:
+
+Eigenvalues: 0, 0.08, 0.15, 0.22, 0.31, ║ 1.8, 2.1, 2.3, ...
+                                          ↑
+                                     GAP → k*=5 clusters
+
+Cluster 1 (Tech):    AAPL, MSFT, GOOGL, META, AMZN, NVDA, ...  (15 activos)
+Cluster 2 (Energy):  XOM, CVX, COP, SLB, ...                    (10 activos)
+Cluster 3 (Banks):   JPM, GS, MS, BAC, C, ...                   (12 activos)
+Cluster 4 (Health):  JNJ, PFE, MRK, UNH, ...                    (10 activos)
+Cluster 5 (Indust):  BA, CAT, HON, GE, ...                      (12 activos)
+```
+
+#### Laplaciano local por cluster
+
+Para cada cluster $C_j$, se construye un **Laplaciano reducido** $L_j$ usando solo las correlaciones entre activos del cluster:
+
+$$L_j = D_j - W_j, \quad W_j = W[C_j, C_j]$$
+
+Este Laplaciano local tiene sus propios eigenvectores $\phi_k^{(j)}$ y eigenvalues $\lambda_k^{(j)}$. Con ~15 activos:
+- Solo ~105 parámetros de correlación
+- 300 observaciones → ratio 3:1
+- **Modos locales mucho más fiables** que los globales
+
+### 13.8 Análisis Multi-escala
+
+El sistema queda organizado en dos niveles:
+
+```
+NIVEL MACRO (inter-cluster):
+  Grafo con k*=5 nodos (uno por cluster)
+  Peso entre clusters = correlación media entre sus activos
+  Modos: rotaciones de capital entre sectores
+  
+  → Detecta: "el capital está fluyendo de tech a energy"
+  → Señal lenta, pero robusta
+
+NIVEL MICRO (intra-cluster):
+  Grafo con ~15 nodos (activos dentro del cluster)
+  Modos: rotaciones de capital dentro del sector
+  
+  → Detecta: "NVDA está sobrecalienta dentro de tech"
+  → Señal rápida, menos ruidosa
+```
+
+#### Overlap a nivel macro vs micro
+
+| Nivel | Qué mide el overlap | Ejemplo |
+|---|---|---|
+| **Macro** $\mathcal{O}_k^{macro}$ | ¿Los sectores siguen siendo los mismos? | ¿Tech y Energy siguen siendo dos bloques distintos? |
+| **Micro** $\mathcal{O}_k^{(j)}$ | ¿Dentro del sector, los roles cambiaron? | ¿META sigue siendo "big tech ads" o pasó a "metaverse"? |
+
+El caso **META 2022** se detecta así:
+- $\mathcal{O}^{macro}$ ≈ 1: el sector tech sigue existiendo → no hay alarma global
+- $\mathcal{O}^{(tech)}$ bajo: META rotó dentro del subgrafo tech → alarma LOCAL → no tradear META
+
+El caso **COVID Flash Crash** se detecta así:
+- $\mathcal{O}^{macro}$ ≈ 1: los sectores siguen iguales
+- $\mathcal{O}^{(j)}$ ≈ 1 para todos los clusters: nada cambió internamente
+- → Todo reversible → tradear
+
+### 13.9 Diagrama Multi-escala
+
+```mermaid
+graph TD
+    G["Grafo Global (102 activos)"] --> E["Eigenvalues λ₁...λ_N"]
+    E --> GAP{"Gap espectral<br/>en k*?"}
+    GAP --> C1["Cluster 1: Tech<br/>(15 activos, L₁)"]
+    GAP --> C2["Cluster 2: Energy<br/>(10 activos, L₂)"]
+    GAP --> C3["Cluster 3: Banks<br/>(12 activos, L₃)"]
+    GAP --> CK["...Cluster k*"]
+    
+    C1 --> ZL1["z-scores locales<br/>φ₁⁽¹⁾, λ₁⁽¹⁾"]
+    C1 --> OL1["Overlap local<br/>O_k⁽¹⁾"]
+    
+    ZL1 --> F1{"O_k⁽¹⁾ > 0.7?"}
+    F1 -->|Sí| T1["TRADEAR dentro de Tech"]
+    F1 -->|No| S1["SKIP: estructura tech rotó"]
+    
+    G --> MACRO["Grafo Macro<br/>(k* nodos)"]
+    MACRO --> OM["Overlap macro O_k^macro"]
+    OM --> FM{"O_macro > 0.7?"}
+    FM -->|No| SA["SKIP ALL: sectores mutaron"]
+```
+

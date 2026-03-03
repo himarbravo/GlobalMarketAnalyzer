@@ -96,30 +96,48 @@ S = -Tr(ρ · log(ρ))    donde  ρ = L̃ / Tr(L̃)
 
 ---
 
-## 🎯 Combinación: Filtro de Reversibilidad
+## 🔬 Problema del Ruido: Descomposición Jerárquica
+
+Con 102 activos y 300 días, la correlación empírica es muy ruidosa (ratio observaciones/parámetros ~0.06). Los modos del Laplaciano global son en su mayoría **ruido estadístico**.
+
+**Solución**: descomponer el grafo en **subgrafos naturales** usando los propios eigenvalues:
+
+1. Los eigenvalues del Laplaciano tienen un **gap espectral** — el salto entre modos "de estructura" y modos "de ruido"
+2. Los modos antes del gap definen clusters naturales (tech, energy, bancos, ...)
+3. Cada cluster (~15 activos) tiene su propio Laplaciano local con ratio 3:1 → mucho menos ruido
 
 ```
-Para cada refit day:
-  1. Calcular ΔS (entropía global del grafo)
-     → Si |ΔS| > umbral_global: DETENER todo trading (el mercado está en transición)
-
-  2. Para cada activo con |z| > threshold:
-     a. Identificar en qué modo φₖ participa más
-     b. Calcular overlap de ese modo con la ventana anterior
-     c. Si overlap > umbral_modal: TRADEAR (reversible)
-        Si overlap < umbral_modal: SKIP (irreversible, nuevo equilibrio)
+Grafo Global (102 activos, ruidoso)
+  ├── Subgrafo TECH  (15 activos) → Laplaciano local, limpio
+  ├── Subgrafo ENERGY (10 activos) → z-scores fiables
+  ├── Subgrafo BANKS (12 activos) → modos locales claros
+  └── ...
 ```
+
+Analizamos el overlap a dos niveles:
+- **Macro (inter-cluster)**: ¿los sectores siguen siendo los mismos bloques?
+- **Micro (intra-cluster)**: ¿dentro del sector, los roles cambiaron?
+
+El caso META 2022: overlap macro ≈ 1 (tech sigue existiendo), overlap micro tech ≈ bajo (META rotó dentro de tech) → alarma LOCAL para META.
+
+> Ver MATHEMATICS.md Secciones 13.7-13.9 para el formalismo completo.
 
 ## Implementation Plan
 
+### Phase 0: Spectral Clustering
+- [ ] Compute eigenvalue spectrum and identify gap → number of natural clusters
+- [ ] Assign assets to clusters via spectral embedding + k-means
+- [ ] Build local Laplacians per cluster
+- [ ] Validate: do clusters match expected sectors (tech, energy, banks)?
+
 ### Phase 1: Diagnostic
-- [ ] Compute modal overlap for each crisis period (do modes actually rotate during structural changes?)
-- [ ] Compute Von Neumann entropy timeline (does entropy spike when z-scores fail?)
+- [ ] Compute modal overlap (global AND per-cluster) for each crisis period
+- [ ] Compute Von Neumann entropy timeline
 - [ ] Correlate hit rate with modal overlap (does high overlap → higher hit rate?)
 
 ### Phase 2: Integration  
-- [ ] Add `modal_overlap()` and `graph_entropy()` to `GraphBuilder`
-- [ ] Add reversibility filter to Pairs + Gate strategy
+- [ ] Add `spectral_clusters()`, `modal_overlap()`, `graph_entropy()` to `GraphBuilder`
+- [ ] Add multi-scale reversibility filter to Pairs + Gate strategy
 - [ ] Re-run crisis backtest with filtered vs unfiltered
 
 ### Phase 3: Validation
@@ -128,6 +146,7 @@ Para cada refit day:
 - [ ] Compare hit rate with and without reversibility filter
 
 ## Acceptance Criteria
+- [ ] Spectral clusters align with economic sectors (>80% match)
 - [ ] Modal overlap distinguishes Case A from Case B in at least 3/5 test periods
 - [ ] Filtered Pairs strategy has hit rate > 55% (vs current 48-54%)
 - [ ] |ΔS| correlates with subsequent MR failure
@@ -136,3 +155,5 @@ Para cada refit day:
 - Von Neumann entropy of graphs: Braunstein et al. (2006)
 - Graph spectral analysis for financial networks: Marti et al. (2021)
 - Mean reversion vs structural breaks: Hendricks & Wilcox (2014)
+- Spectral clustering: Ng, Jordan & Weiss (2001)
+
