@@ -62,6 +62,25 @@ CRISIS_PERIODS = [
         "crisis_start": "2022-01-03",
         "expected_regime": "stress",
     },
+    # ── Non-crisis periods for comparison ──
+    {
+        "name": "Bull 2019",
+        "start": "2019-01-01",
+        "end": "2019-09-30",
+        "description": "Pre-COVID bull market, low volatility",
+        "vix_peak_date": "2019-08-05",
+        "crisis_start": "2019-08-01",
+        "expected_regime": "normal",
+    },
+    {
+        "name": "AI Rally 2023-24",
+        "start": "2023-04-01",
+        "end": "2024-06-30",
+        "description": "Post-bear recovery, AI-driven rally",
+        "vix_peak_date": "2023-10-20",
+        "crisis_start": "2023-10-01",
+        "expected_regime": "normal",
+    },
 ]
 
 # ── Trading params (same as backtest.py) ──
@@ -132,12 +151,18 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
     equity_spy = [INITIAL]
     equity_rand = [INITIAL]
     equity_gate = [INITIAL]  # P5: MR + Regime Gate
+    equity_pairs = [INITIAL] # Graph Pairs (dollar-neutral)
+    equity_combo = [INITIAL] # Pairs + Gate combined
     pos_mr = []
     pos_rand = []
     pos_gate = []            # P5
+    pos_pairs = []           # Pairs: list of (long_idx, short_idx, remaining, size)
+    pos_combo = []           # Combined: pairs or refuge depending on regime
     n_trades_mr = 0
     n_trades_rand = 0
     n_trades_gate = 0        # P5
+    n_trades_pairs = 0
+    n_trades_combo = 0
     warmup = 80
 
     # P5: Fundamental scores for quality filter
@@ -205,6 +230,52 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
         pos_gate = alive_g
         equity_gate.append(equity_gate[-1] * (1 + pnl_gate))
 
+        # ── Step Pairs positions ──
+        pnl_pairs = 0.0
+        alive_p = []
+        for pos in pos_pairs:
+            long_idx, short_idx, remaining, size = pos
+            if long_idx >= N or short_idx >= N:
+                continue
+            # P&L = long return - short return (market neutral)
+            pair_ret = (ret[long_idx] - ret[short_idx]) * size
+            pnl_pairs += pair_ret
+            remaining -= 1
+            if remaining <= 0:
+                pass  # let it expire
+            else:
+                alive_p.append((long_idx, short_idx, remaining, size))
+        pos_pairs = alive_p
+        equity_pairs.append(equity_pairs[-1] * (1 + pnl_pairs))
+
+        # ── Step Combo positions (pairs format) ──
+        pnl_combo = 0.0
+        alive_cb = []
+        for pos in pos_combo:
+            if len(pos) == 4:
+                # Pair position: (long_idx, short_idx, remaining, size)
+                long_idx, short_idx, remaining, size = pos
+                if long_idx >= N or short_idx >= N:
+                    continue
+                pair_ret = (ret[long_idx] - ret[short_idx]) * size
+                pnl_combo += pair_ret
+                remaining -= 1
+                if remaining > 0:
+                    alive_cb.append((long_idx, short_idx, remaining, size))
+            else:
+                # Refuge position: (idx, direction, remaining, entry_p, size, tx)
+                idx, direction, remaining, entry_p, size, tx = pos
+                if idx >= N:
+                    continue
+                pnl_combo += direction * ret[idx] * size
+                remaining -= 1
+                if remaining <= 0:
+                    pnl_combo -= tx
+                else:
+                    alive_cb.append((idx, direction, remaining, entry_p, size, tx))
+        pos_combo = alive_cb
+        equity_combo.append(equity_combo[-1] * (1 + pnl_combo))
+
         # ── Open trades on refit days ──
         if day_idx % REFIT_DAYS == 0 and z is not None and t < len(z):
             zt = np.nan_to_num(z[t][:N], nan=0)
@@ -229,6 +300,18 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
                 pos_rand.append((idx, +1 if rng.random() > 0.5 else -1,
                                  10, 1.0, 1.0, tx))
                 n_trades_rand += 1
+
+            # Graph Pairs: dollar-neutral long-short
+            # Long the K most undervalued (z << 0), short the K most overvalued (z >> 0)
+            n_pairs = min(K_TOP, N // 2)
+            long_candidates = order[:n_pairs]   # most negative z
+            short_candidates = order[-n_pairs:]  # most positive z
+            for k in range(n_pairs):
+                li = long_candidates[k]
+                si = short_candidates[n_pairs - 1 - k]  # pair best long with best short
+                if zt[li] < -0.5 and zt[si] > 0.5:  # both must be dislocated
+                    pos_pairs.append((li, si, HOLD_MR, 0.5))  # half size per pair
+                    n_trades_pairs += 1
 
             # P5: Regime-gated MR (s + ds/dt)
             s_val = gb.s
@@ -266,6 +349,37 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
                         pos_gate.append((idx, -1, HOLD_MR, 1.0, 1.0, tx))
                         n_trades_gate += 1
 
+            # Combined: Pairs + Gate
+            # Gate detects global regime, Pairs maximizes alpha
+            s_val_c = gb.s
+            ds_dt_c = getattr(gb, 'ds_dt', 0.0)
+            refuge_sig_c = getattr(engine, 'refuge_signal', 0.0)
+
+            if s_val_c < 0.40 or refuge_sig_c > 0.5 or ds_dt_c < -0.05:
+                # REFUGE: close ALL pairs, long refuge ETFs only
+                pos_combo = []  # wipe all pairs
+                for idx in range(N):
+                    if tickers[idx] in REFUGE_TICKERS:
+                        tx = get_tx_cost(tickers[idx])
+                        pos_combo.append((idx, +1, HOLD_MR, 1.0, 0.2, tx))
+                        n_trades_combo += 1
+            elif s_val_c < 0.70 or ds_dt_c < -0.02:
+                # DEFENSIVE: pairs at 25% size (reduced risk, still market-neutral)
+                for k in range(n_pairs):
+                    li = long_candidates[k]
+                    si = short_candidates[n_pairs - 1 - k]
+                    if zt[li] < -0.5 and zt[si] > 0.5:
+                        pos_combo.append((li, si, HOLD_MR, 0.25))
+                        n_trades_combo += 1
+            else:
+                # ALPHA: full pairs trading
+                for k in range(n_pairs):
+                    li = long_candidates[k]
+                    si = short_candidates[n_pairs - 1 - k]
+                    if zt[li] < -0.5 and zt[si] > 0.5:
+                        pos_combo.append((li, si, HOLD_MR, 0.5))
+                        n_trades_combo += 1
+
     # ── Compute metrics ──
     def metrics(eq, label):
         eq = np.array(eq)
@@ -282,11 +396,15 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
     m_spy = metrics(equity_spy, "SPY B&H")
     m_rand = metrics(equity_rand, "Random")
     m_gate = metrics(equity_gate, "MR + Regime Gate")
+    m_pairs = metrics(equity_pairs, "Graph Pairs")
+    m_combo = metrics(equity_combo, "Pairs + Gate")
 
-    print(f"\n  {'Strategy':<20} {'Return':>8} {'Sharpe':>7} {'MaxDD':>8}")
-    print(f"  {'─' * 45}")
-    for m in [m_mr, m_gate, m_spy, m_rand]:
-        print(f"  {m['label']:<20} {m['return']:>+7.1f}% {m['sharpe']:>6.2f} {m['max_dd']:>7.1f}%")
+    print(f"\n  {'Strategy':<22} {'Return':>8} {'Sharpe':>7} {'MaxDD':>8} {'Trades':>7}")
+    print(f"  {'─' * 58}")
+    for m, nt in [(m_mr, n_trades_mr), (m_pairs, n_trades_pairs),
+                  (m_combo, n_trades_combo), (m_gate, n_trades_gate),
+                  (m_spy, '-'), (m_rand, n_trades_rand)]:
+        print(f"  {m['label']:<22} {m['return']:>+7.1f}% {m['sharpe']:>6.2f} {m['max_dd']:>7.1f}% {str(nt):>7}")
 
     # ── UKF s(t) anticipation analysis ──
     s_anticipation = _analyze_s_anticipation(gb, dates, crisis)
@@ -321,13 +439,18 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
         "s": float(gb.s),
         "alpha": float(engine.alpha),
         "mr": m_mr,
+        "pairs": m_pairs,
+        "combo": m_combo,
         "gate": m_gate,
         "spy": m_spy,
         "random": m_rand,
         "alpha_vs_spy": m_mr["return"] - m_spy["return"],
+        "pairs_vs_spy": m_pairs["return"] - m_spy["return"],
+        "combo_vs_spy": m_combo["return"] - m_spy["return"],
         "gate_vs_spy": m_gate["return"] - m_spy["return"],
-        "gate_vs_mr": m_gate["return"] - m_mr["return"],
         "n_trades": n_trades_mr,
+        "n_trades_pairs": n_trades_pairs,
+        "n_trades_combo": n_trades_combo,
         "hit_rate_5d": hit_rate,
         "s_anticipation": s_anticipation,
         "credit_anticipation": credit_anticipation,
@@ -346,8 +469,8 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
 
     print(f"  Hit rate (5d): {hit_rate:.1%}")
     print(f"  MR α vs SPY: {result['alpha_vs_spy']:+.1f}%")
+    print(f"  Pairs α vs SPY: {result['pairs_vs_spy']:+.1f}%")
     print(f"  Gate α vs SPY: {result['gate_vs_spy']:+.1f}%")
-    print(f"  Gate improvement over MR: {result['gate_vs_mr']:+.1f}%")
 
     return result
 
@@ -473,40 +596,43 @@ def main():
     print(f"\n{'═' * 90}")
     print(f"  RESUMEN — CRISIS BACKTEST")
     print(f"{'═' * 90}")
-    print(f"  {'Crisis':<20} {'MR Ret':>8} {'Gate Ret':>9} {'SPY Ret':>8} {'Gate α':>8} {'MR DD':>8} {'Gate DD':>8} {'Hit5d':>6} {'s_lead':>7}")
-    print(f"  {'─' * 100}")
+    print(f"  {'Crisis':<18} {'MR':>8} {'Pairs':>8} {'Combo':>8} {'Gate':>8} {'SPY':>8} {'CombDD':>8}")
+    print(f"  {'─' * 80}")
 
     for r in all_results:
-        s_lead = r["s_anticipation"].get("s_lead_days", "N/A") if r["s_anticipation"] else "N/A"
-        print(f"  {r['crisis']:<20} {r['mr']['return']:>+7.1f}% {r['gate']['return']:>+8.1f}% {r['spy']['return']:>+7.1f}% "
-              f"{r['gate_vs_spy']:>+7.1f}% {r['mr']['max_dd']:>7.1f}% {r['gate']['max_dd']:>7.1f}% "
-              f"{r['hit_rate_5d']:>5.1%} {s_lead:>7}")
+        print(f"  {r['crisis']:<18} {r['mr']['return']:>+7.1f}% {r['pairs']['return']:>+7.1f}% "
+              f"{r['combo']['return']:>+7.1f}% {r['gate']['return']:>+7.1f}% {r['spy']['return']:>+7.1f}% "
+              f"{r['combo']['max_dd']:>7.1f}%")
 
-    print(f"  {'─' * 100}")
+    print(f"  {'─' * 80}")
 
     # ── Verdict ──
     avg_alpha = np.mean([r["alpha_vs_spy"] for r in all_results])
+    avg_pairs_alpha = np.mean([r["pairs_vs_spy"] for r in all_results])
+    avg_combo_alpha = np.mean([r["combo_vs_spy"] for r in all_results])
     avg_gate_alpha = np.mean([r["gate_vs_spy"] for r in all_results])
-    avg_gate_improve = np.mean([r["gate_vs_mr"] for r in all_results])
-    avg_hit = np.mean([r["hit_rate_5d"] for r in all_results])
     avg_dd_mr = np.mean([r["mr"]["max_dd"] for r in all_results])
+    avg_dd_pairs = np.mean([r["pairs"]["max_dd"] for r in all_results])
+    avg_dd_combo = np.mean([r["combo"]["max_dd"] for r in all_results])
     avg_dd_gate = np.mean([r["gate"]["max_dd"] for r in all_results])
 
-    print(f"\n  Average MR α vs SPY:      {avg_alpha:+.1f}%")
-    print(f"  Average Gate α vs SPY:    {avg_gate_alpha:+.1f}%")
-    print(f"  Average Gate improvement: {avg_gate_improve:+.1f}% over MR")
-    print(f"  Average hit rate 5d:      {avg_hit:.1%}")
-    print(f"  Average MR MaxDD:         {avg_dd_mr:.1f}%")
-    print(f"  Average Gate MaxDD:       {avg_dd_gate:.1f}%")
+    print(f"\n  Average MR α vs SPY:     {avg_alpha:+.1f}%")
+    print(f"  Average Pairs α vs SPY:  {avg_pairs_alpha:+.1f}%")
+    print(f"  Average Combo α vs SPY:  {avg_combo_alpha:+.1f}%")
+    print(f"  Average Gate α vs SPY:   {avg_gate_alpha:+.1f}%")
+    print(f"  Average MR MaxDD:        {avg_dd_mr:.1f}%")
+    print(f"  Average Pairs MaxDD:     {avg_dd_pairs:.1f}%")
+    print(f"  Average Combo MaxDD:     {avg_dd_combo:.1f}%")
+    print(f"  Average Gate MaxDD:      {avg_dd_gate:.1f}%")
 
-    if avg_gate_alpha > 0:
-        print(f"  🏆 VEREDICTO: Regime Gate genera α positivo vs SPY ({avg_gate_alpha:+.1f}%)")
-    elif avg_gate_alpha > avg_alpha:
-        print(f"  ✅ VEREDICTO: Regime Gate mejora sobre MR puro ({avg_gate_improve:+.1f}%)")
-    elif avg_dd_gate > avg_dd_mr:  # less negative = better
-        print(f"  ⚠ VEREDICTO: Regime Gate reduce drawdown pero no genera α")
-    else:
-        print(f"  ❌ VEREDICTO: Regime Gate no mejora significativamente")
+    # Find the best strategy
+    best_name = "Combo"
+    best_alpha = avg_combo_alpha
+    if avg_pairs_alpha > best_alpha:
+        best_name, best_alpha = "Pairs", avg_pairs_alpha
+    if avg_gate_alpha > best_alpha:
+        best_name, best_alpha = "Gate", avg_gate_alpha
+    print(f"\n  🏆 MEJOR ESTRATEGIA: {best_name} (α vs SPY: {best_alpha:+.1f}%, MaxDD: {avg_dd_combo:.1f}%)")
 
     # ── UKF Anticipation Summary ──
     print(f"\n  ── UKF s(t) Anticipation ──")
