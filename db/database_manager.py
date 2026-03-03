@@ -127,8 +127,19 @@ class DatabaseManager:
             query = query.order("date", desc=False)
             query = query.range(offset, offset + page_size - 1)
 
-            res = query.execute()
-            if not res.data:
+            # Retry with backoff for connection issues
+            res = None
+            for attempt in range(3):
+                try:
+                    res = query.execute()
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        import time
+                        time.sleep(2 ** (attempt + 1))  # 2, 4, 8 seconds
+                    else:
+                        raise
+            if res is None or not res.data:
                 break
 
             all_data.extend(res.data)
@@ -156,8 +167,26 @@ class DatabaseManager:
         Devuelve una columna (por defecto 'close') de múltiples tickers
         como un DataFrame de columnas por ticker.
 
-        Ideal para calcular correlaciones, rendimientos cruzados, etc.
+        Usa caché local en .cache/ para evitar queries repetidas a Supabase.
         """
+        import hashlib, pickle
+        from pathlib import Path
+
+        # Build cache key from parameters
+        cache_dir = Path(__file__).parent.parent / ".cache"
+        cache_dir.mkdir(exist_ok=True)
+        key = hashlib.md5(f"{sorted(tickers)}_{start_date}_{end_date}_{column}".encode()).hexdigest()[:12]
+        cache_file = cache_dir / f"prices_{key}.pkl"
+
+        # Try cache first
+        if cache_file.exists():
+            try:
+                with open(cache_file, "rb") as f:
+                    return pickle.load(f)
+            except Exception:
+                pass  # Corrupted cache, re-download
+
+        # Download from Supabase
         frames = {}
         for ticker in tickers:
             df = self.get_prices(ticker, start_date=start_date, end_date=end_date)
@@ -169,6 +198,14 @@ class DatabaseManager:
 
         result = pd.DataFrame(frames)
         result.index = pd.to_datetime(result.index)
+
+        # Save to cache
+        try:
+            with open(cache_file, "wb") as f:
+                pickle.dump(result, f)
+        except Exception:
+            pass  # Don't fail if cache write fails
+
         return result
 
     def get_latest_date(self, ticker: str) -> Optional[str]:

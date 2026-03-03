@@ -30,3 +30,4 @@ data/
 # IDE
 .vscode/
 .idea/
+.cache/

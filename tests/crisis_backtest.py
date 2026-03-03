@@ -164,6 +164,7 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
     n_trades_pairs = 0
     n_trades_combo = 0
     warmup = 80
+    s_timeline = []  # Track s values over time for diagnostic
 
     # P5: Fundamental scores for quality filter
     fund_scores = ff.scores if hasattr(ff, 'scores') else {}
@@ -278,6 +279,27 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
 
         # ── Open trades on refit days ──
         if day_idx % REFIT_DAYS == 0 and z is not None and t < len(z):
+            # Get current VIX for regime gate (no s recalibration needed)
+            ref_date = dates[t] if t < len(dates) else dates[-1]
+            vix_now = float(gb.vix.asof(ref_date)) if len(gb.vix) > 0 else 15.0
+            if np.isnan(vix_now):
+                vix_now = 15.0
+
+            # Determine VIX-based regime
+            if vix_now > 35:
+                vix_mode = "REFUGE"
+            elif vix_now > 25:
+                vix_mode = "DEFENSIVE"
+            else:
+                vix_mode = "ALPHA"
+
+            # Log for diagnostic
+            s_timeline.append({
+                "date": str(ref_date.date()) if hasattr(ref_date, 'date') else str(ref_date),
+                "vix": round(vix_now, 1),
+                "mode": vix_mode,
+            })
+
             zt = np.nan_to_num(z[t][:N], nan=0)
             order = np.argsort(zt)
 
@@ -313,12 +335,8 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
                     pos_pairs.append((li, si, HOLD_MR, 0.5))  # half size per pair
                     n_trades_pairs += 1
 
-            # P5: Regime-gated MR (s + ds/dt)
-            s_val = gb.s
-            ds_dt = getattr(gb, 'ds_dt', 0.0)
-            refuge_sig = getattr(engine, 'refuge_signal', 0.0)
-
-            if s_val < 0.40 or refuge_sig > 0.5 or ds_dt < -0.05:
+            # P6: VIX-gated MR
+            if vix_mode == "REFUGE":
                 # REFUGE: close all equity, long refuge
                 pos_gate = []
                 for idx in range(N):
@@ -326,7 +344,7 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
                         tx = get_tx_cost(tickers[idx])
                         pos_gate.append((idx, +1, HOLD_MR, 1.0, 0.2, tx))
                         n_trades_gate += 1
-            elif s_val < 0.70 or ds_dt < -0.02:
+            elif vix_mode == "DEFENSIVE":
                 # DEFENSIVE: only quality longs, 50% sizing, no shorts
                 for idx in order[:K_TOP]:
                     if zt[idx] < -Z_ENTRY_BASE:
@@ -349,13 +367,8 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
                         pos_gate.append((idx, -1, HOLD_MR, 1.0, 1.0, tx))
                         n_trades_gate += 1
 
-            # Combined: Pairs + Gate
-            # Gate detects global regime, Pairs maximizes alpha
-            s_val_c = gb.s
-            ds_dt_c = getattr(gb, 'ds_dt', 0.0)
-            refuge_sig_c = getattr(engine, 'refuge_signal', 0.0)
-
-            if s_val_c < 0.40 or refuge_sig_c > 0.5 or ds_dt_c < -0.05:
+            # P6: Combined — VIX gate + Pairs trading
+            if vix_mode == "REFUGE":
                 # REFUGE: close ALL pairs, long refuge ETFs only
                 pos_combo = []  # wipe all pairs
                 for idx in range(N):
@@ -363,7 +376,7 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
                         tx = get_tx_cost(tickers[idx])
                         pos_combo.append((idx, +1, HOLD_MR, 1.0, 0.2, tx))
                         n_trades_combo += 1
-            elif s_val_c < 0.70 or ds_dt_c < -0.02:
+            elif vix_mode == "DEFENSIVE":
                 # DEFENSIVE: pairs at 25% size (reduced risk, still market-neutral)
                 for k in range(n_pairs):
                     li = long_candidates[k]
@@ -405,6 +418,22 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
                   (m_combo, n_trades_combo), (m_gate, n_trades_gate),
                   (m_spy, '-'), (m_rand, n_trades_rand)]:
         print(f"  {m['label']:<22} {m['return']:>+7.1f}% {m['sharpe']:>6.2f} {m['max_dd']:>7.1f}% {str(nt):>7}")
+
+    # ── VIX Gate Diagnostic ──
+    if s_timeline:
+        vix_vals = [e["vix"] for e in s_timeline]
+        modes = [e["mode"] for e in s_timeline]
+        n_alpha = modes.count("ALPHA")
+        n_def = modes.count("DEFENSIVE")
+        n_ref = modes.count("REFUGE")
+        print(f"\n  ── VIX Gate Timeline ──")
+        print(f"  VIX range: [{min(vix_vals):.1f}, {max(vix_vals):.1f}] | mean: {np.mean(vix_vals):.1f}")
+        print(f"  Modes: ALPHA={n_alpha} | DEFENSIVE={n_def} | REFUGE={n_ref} (of {len(s_timeline)} refits)")
+        for e in s_timeline[:3] + [{"date": "...", "vix": 0, "mode": "..."}] + s_timeline[-3:]:
+            if e["date"] == "...":
+                print(f"  ...")
+            else:
+                print(f"  {e['date']}  VIX={e['vix']:>5.1f}  → {e['mode']}")
 
     # ── UKF s(t) anticipation analysis ──
     s_anticipation = _analyze_s_anticipation(gb, dates, crisis)
