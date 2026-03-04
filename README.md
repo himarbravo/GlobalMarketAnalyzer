@@ -203,8 +203,12 @@ Alpha lives in **cross-zone latency** (days-weeks to arbitrage between jurisdict
 1. **Composite strategy loses** — weights 0.4z/0.3F/0.3δ need better optimization
 2. **Paper trading in progress** — 6-month live signal accumulation started, review with `--review`
 
-### Next Steps
+### Next Steps (Prioritized 2026-03-04)
 
-- [ ] Calibrar $\lambda^*(R)$ por régimen con OLS
-- [ ] Grafo dirigido $\tilde{W}$ con Granger causality
-- [ ] Eigenvalores complejos → ciclos sectoriales
+| Priority | Task | Issue |
+|---|---|---|
+| 🔴 #1 | **P7: Reversibility filter** — Modal Overlap + Von Neumann Entropy to distinguish temporary vs structural dislocations (hit rate 50% → 55%+) | [#15](https://github.com/himarbravo/GlobalMarketAnalyzer/issues/15) |
+| 🔴 #2 | **P8: Kelly sizing + entry timing** — Use P(rev) for position sizing, dz/dt for entry confirmation, ATR-based stops | [#16](https://github.com/himarbravo/GlobalMarketAnalyzer/issues/16) |
+| 🟡 #3 | **Optimal regime gate** — Endogenous graph-based gate (spectral ratio, z-score dispersion) to replace/complement VIX gate | [#13](https://github.com/himarbravo/GlobalMarketAnalyzer/issues/13) |
+
+**Discarded**: Granger causality graph (cross-lag already captures direction), complex eigenvalues (academic), λ*(R) calibration (premature without hit rate fix). **Parked**: hierarchical clustering (amplifier for P7 if needed).

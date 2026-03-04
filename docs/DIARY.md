@@ -1,5 +1,60 @@
 # Development Diary — GlobalMarketAnalyzer
 
+## 2026-03-04
+
+### Session: Project Status Assessment — Lo que funciona y lo que bloquea
+
+**Objetivo**: Evaluar honestamente el estado del proyecto tras P0–P6 para priorizar los próximos pasos.
+
+#### ✅ Lo que el proyecto hace bien
+
+| Fortaleza | Evidencia |
+|---|---|
+| Modelo físico sólido | R² > 0.97 (OOS), drift parámetros mínimo (CV α = 0.16) |
+| Infraestructura completa | 148 tickers, 4 zonas, Supabase, cache local, estado Kalman persistente |
+| Validación rigurosa y honesta | 3 crisis walk-forward + 3-fold cross-val + paper trading con scoring |
+| Iteración medible P4→P6 | MaxDD crisis: -49% → -14% (s-gate) → -3.5% best case (VIX+Combo) |
+| Anticipación demostrada | UKF detectó Volmageddon 132d antes, Fed 2022 103d antes |
+| Documentación excepcional | MATHEMATICS.md 703 líneas, analogía agua-paisaje, diagrams Mermaid |
+
+#### 🔴 Problemas que bloquean el avance
+
+**1. Hit Rate ≈ 50% (problema central)**
+Los z-scores miden *cuánto* se desvió un activo pero no si el equilibrio sigue existiendo. P7 (Modal Overlap + Entropía Von Neumann) planteó la solución teórica pero **no está implementado**. Sin resolver esto, no hay edge real.
+
+**2. Retornos negativos incluso en bull markets**
+P6 Combo: Bull 2019 = -8.7%, AI Rally = -15.1%. El problema no es solo el gate de crisis — la generación de alpha por z-score MR no es suficiente por sí sola.
+
+**3. Ruido dimensional**
+102 activos / 300 días → ratio obs/params ≈ 0.06 para la matriz de correlación. Muchos modos del Laplaciano son ruido. Clustering jerárquico (Sec 13.7 de MATHEMATICS.md) propuesto pero **no implementado**.
+
+**4. Bug conocido en W²/W³**
+`graph_builder.py` usa `|W|·|W|` en vez de `W·W` para vecinos de 2º/3er orden — pierde signo de anti-correlación. (Nota: DIARY 2026-02-26 dice que se corrigió, pero MATHEMATICS.md línea 79 sigue marcándolo como pendiente — verificar estado real.)
+
+**5. Parámetros fijos sin calibración empírica**
+Solo α, γ, s se calibran. β_fx=0.30, η=0.02, β_r_bank=-0.50, β_r_prod=+0.30, β₂=0.15, β₃=0.05 son ad hoc.
+
+**6. Sizing y timing primitivos**
+Posiciones iguales cada 20 días, z-score fijo 0.8, sin Kelly sizing, sin uso de P(rev) para dimensionar. Issue #14 lo documenta.
+
+#### 📊 Mapa de progreso
+
+```
+Modelo Físico          ██████████ 95%
+Infraestructura        █████████░ 90%
+Validación             ████████░░ 80%
+Regime Gate            ███████░░░ 70%
+Reversibilidad (P7)    ██░░░░░░░░ 20% (solo teoría)
+Sizing / Execution     █░░░░░░░░░ 10%
+Clustering jerárquico  ░░░░░░░░░░  0%
+```
+
+**Diagnóstico**: Plataforma de investigación excelente. Para operar con capital real → resolver (1) reversibilidad/hit rate y (2) sizing inteligente.
+
+**Riesgo principal**: Dirección — mucha investigación abierta (P7, clustering, Granger, eigenvalores complejos) pero poca convergencia hacia implementación y prueba. Issues #13 y #14 definen el camino.
+
+---
+
 ## 2026-03-02
 
 ### Session: P0-P3 Implementation Sprint (6 PRs merged)

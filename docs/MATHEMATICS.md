@@ -467,10 +467,13 @@ Con 9+ parámetros y 20 años de datos:
 | ✅ | P4.3: Paper trading (daily signals → Supabase, --review scoring) | PR #TBD |
 | ✅ | P5: Regime-conditional execution (s-gate) | PR #TBD |
 | ✅ | P6: VIX-based regime gate + Pairs + Combo strategy | feature/regime-gate-investigation |
-| 🔵 | **P7: Reversibility detection (modal overlap + entropy)** | **Sec. 13 below** |
-| 🟢 | Calibrar $\lambda^*(R)$ por régimen con OLS | Pendiente |
-| 🟢 | Grafo dirigido $\tilde{W}$ con Granger causality | Pendiente |
-| 🟢 | Eigenvalores complejos → ciclos sectoriales | Investigación |
+| 🔴 | **P7: Reversibility detection (modal overlap + entropy)** | **Issue #15 — PRIORIDAD #1** |
+| 🔴 | **P8: Kelly sizing + entry timing inteligente** | **Issue #16 — PRIORIDAD #2** |
+| 🟡 | Gate óptimo para régimen (endógeno al grafo) | Issue #13 — tras P7 |
+| ⏸️ | Clustering jerárquico (subgrafos por sector) | Aparcado — útil si P7 insuficiente |
+| ❌ | ~~Calibrar $\lambda^*(R)$ por régimen con OLS~~ | Descartado — prematuro sin hit rate |
+| ❌ | ~~Grafo dirigido $\tilde{W}$ con Granger causality~~ | Descartado — cross-lag ya captura dirección |
+| ❌ | ~~Eigenvalores complejos → ciclos sectoriales~~ | Descartado — académico, no ataca bottleneck |
 
 ---
 
