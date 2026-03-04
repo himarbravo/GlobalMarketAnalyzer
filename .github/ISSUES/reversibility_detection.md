@@ -1,5 +1,14 @@
 # P7: Reversibility Detection — Modal Overlap & Graph Entropy
 
+> [!IMPORTANT]
+> **STATUS: RESOLVED — Experimental Dead End (eigenvector approach)**
+> 
+> Eigenvector-based modal overlap is **too noisy** with 102 assets and 60-day windows to serve as a reversibility chivato. Overlap mean is 0.07-0.17 across ALL periods (crisis and bull alike), meaning modes rotate constantly due to statistical noise, not structural changes. Ledoit-Wolf shrinkage helps in bull markets (0.17→0.37) but not in crises (0.08→0.11).
+> 
+> **What works instead**: aggregate spectral properties (APC, eigenvalue distribution, trace of L) are stable enough to distinguish regimes. APC-based gate already demonstrated MaxDD reduction from -49% to -14%.
+>
+> See `tests/spectral_diagnostic.py` for the experimental evidence.
+
 ## 🧠 The Core Problem
 
 Our z-scores tell us *how far* an asset is from equilibrium, but not *whether the equilibrium still exists*. This is why the hit rate is ~50% — we can't distinguish between:
@@ -96,43 +105,25 @@ S = -Tr(ρ · log(ρ))    donde  ρ = L̃ / Tr(L̃)
 
 ---
 
-## 🔬 Problema del Ruido: Descomposición Jerárquica
-
-Con 102 activos y 300 días, la correlación empírica es muy ruidosa (ratio observaciones/parámetros ~0.06). Los modos del Laplaciano global son en su mayoría **ruido estadístico**.
-
-**Solución**: descomponer el grafo en **subgrafos naturales** usando los propios eigenvalues:
-
-1. Los eigenvalues del Laplaciano tienen un **gap espectral** — el salto entre modos "de estructura" y modos "de ruido"
-2. Los modos antes del gap definen clusters naturales (tech, energy, bancos, ...)
-3. Cada cluster (~15 activos) tiene su propio Laplaciano local con ratio 3:1 → mucho menos ruido
+## 🎯 Combinación: Filtro de Reversibilidad
 
 ```
-Grafo Global (102 activos, ruidoso)
-  ├── Subgrafo TECH  (15 activos) → Laplaciano local, limpio
-  ├── Subgrafo ENERGY (10 activos) → z-scores fiables
-  ├── Subgrafo BANKS (12 activos) → modos locales claros
-  └── ...
+Para cada refit day:
+  1. Calcular ΔS (entropía global del grafo)
+     → Si |ΔS| > umbral_global: DETENER todo trading (el mercado está en transición)
+
+  2. Para cada activo con |z| > threshold:
+     a. Identificar en qué modo φₖ participa más
+     b. Calcular overlap de ese modo con la ventana anterior
+     c. Si overlap > umbral_modal: TRADEAR (reversible)
+        Si overlap < umbral_modal: SKIP (irreversible, nuevo equilibrio)
 ```
-
-Analizamos el overlap a dos niveles:
-- **Macro (inter-cluster)**: ¿los sectores siguen siendo los mismos bloques?
-- **Micro (intra-cluster)**: ¿dentro del sector, los roles cambiaron?
-
-El caso META 2022: overlap macro ≈ 1 (tech sigue existiendo), overlap micro tech ≈ bajo (META rotó dentro de tech) → alarma LOCAL para META.
-
-> Ver MATHEMATICS.md Secciones 13.7-13.9 para el formalismo completo.
 
 ## Implementation Plan
 
-### Phase 0: Spectral Clustering
-- [ ] Compute eigenvalue spectrum and identify gap → number of natural clusters
-- [ ] Assign assets to clusters via spectral embedding + k-means
-- [ ] Build local Laplacians per cluster
-- [ ] Validate: do clusters match expected sectors (tech, energy, banks)?
-
 ### Phase 1: Diagnostic
-- [ ] Compute modal overlap (global AND per-cluster) for each crisis period
-- [ ] Compute Von Neumann entropy timeline
+- [ ] Compute modal overlap for each crisis period (do modes actually rotate during structural changes?)
+- [ ] Compute Von Neumann entropy timeline (does entropy spike when z-scores fail?)
 - [ ] Correlate hit rate with modal overlap (does high overlap → higher hit rate?)
 
 ### Phase 2: Integration  
