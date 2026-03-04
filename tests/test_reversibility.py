@@ -1,249 +1,250 @@
 """
-Tests for P7 Reversibility Filter.
+Tests for P7 Reversibility Filter (Sector-Correlation approach).
 
-Tests modal overlap, Von Neumann entropy, effective overlap,
+Tests sector correlation computation, correlation drop detection,
 and the ReversibilityFilter class.
 """
 
 import numpy as np
 import pytest
+from unittest.mock import patch
 from core.reversibility import (
-    compute_modal_overlap,
     compute_von_neumann_entropy,
-    compute_effective_overlap,
+    compute_sector_correlations,
     ReversibilityFilter,
 )
 
 
-class TestModalOverlap:
-    """Tests for compute_modal_overlap()."""
-
-    def test_identical_eigenvectors_gives_overlap_one(self):
-        """Same eigenvectors → overlap = 1.0 for all modes."""
-        N = 10
-        # Random orthogonal matrix
-        A = np.random.randn(N, N)
-        Q, _ = np.linalg.qr(A)
-
-        overlaps = compute_modal_overlap(Q, Q)
-        np.testing.assert_allclose(overlaps, 1.0, atol=1e-10)
-
-    def test_random_rotation_gives_low_overlap(self):
-        """Completely different eigenvectors → overlap ≈ 0."""
-        N = 20
-        A1 = np.random.randn(N, N)
-        Q1, _ = np.linalg.qr(A1)
-        A2 = np.random.randn(N, N)
-        Q2, _ = np.linalg.qr(A2)
-
-        overlaps = compute_modal_overlap(Q1, Q2)
-        # Mean overlap should be low (≈ 1/N for random orthogonal)
-        assert np.mean(overlaps) < 0.3
-
-    def test_sign_flip_gives_overlap_one(self):
-        """Eigenvectors can have arbitrary sign → overlap should be 1."""
-        N = 10
-        A = np.random.randn(N, N)
-        Q, _ = np.linalg.qr(A)
-        Q_flipped = -Q  # flip all signs
-
-        overlaps = compute_modal_overlap(Q, Q_flipped)
-        np.testing.assert_allclose(overlaps, 1.0, atol=1e-10)
-
-    def test_partial_rotation_gives_intermediate_overlap(self):
-        """One mode rotated, rest stable → one low overlap, rest high."""
-        N = 10
-        A = np.random.randn(N, N)
-        Q, _ = np.linalg.qr(A)
-        Q_mod = Q.copy()
-        # Rotate mode 3 by mixing with mode 4
-        theta = np.pi / 3  # 60 degrees
-        Q_mod[:, 3] = np.cos(theta) * Q[:, 3] + np.sin(theta) * Q[:, 4]
-        Q_mod[:, 4] = -np.sin(theta) * Q[:, 3] + np.cos(theta) * Q[:, 4]
-
-        overlaps = compute_modal_overlap(Q, Q_mod)
-        # Mode 3 and 4 should have lower overlap
-        assert overlaps[3] < 0.5
-        assert overlaps[4] < 0.5
-        # Other modes should remain high
-        for k in [0, 1, 2, 5, 6, 7, 8, 9]:
-            assert overlaps[k] > 0.9
-
-    def test_n_modes_parameter(self):
-        """n_modes limits the output size."""
-        N = 10
-        A = np.random.randn(N, N)
-        Q, _ = np.linalg.qr(A)
-
-        overlaps = compute_modal_overlap(Q, Q, n_modes=5)
-        assert len(overlaps) == 5
-
-    def test_degenerate_eigenvalues_use_subspace(self):
-        """Degenerate eigenvalues → subspace overlap instead of per-mode."""
-        N = 10
-        A = np.random.randn(N, N)
-        Q, _ = np.linalg.qr(A)
-
-        # Rotate within a degenerate subspace (modes 2,3)
-        theta = np.pi / 4
-        Q_rot = Q.copy()
-        Q_rot[:, 2] = np.cos(theta) * Q[:, 2] + np.sin(theta) * Q[:, 3]
-        Q_rot[:, 3] = -np.sin(theta) * Q[:, 2] + np.cos(theta) * Q[:, 3]
-
-        # With degenerate eigenvalues for modes 2,3 → subspace overlap = 1
-        eigenvalues = np.array([0, 0.5, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
-        overlaps = compute_modal_overlap(Q, Q_rot, eigenvalues_new=eigenvalues)
-
-        # Modes 2,3 should have high overlap (subspace didn't change)
-        assert overlaps[2] > 0.9
-        assert overlaps[3] > 0.9
-
+# ── Von Neumann Entropy ──
 
 class TestVonNeumannEntropy:
-    """Tests for compute_von_neumann_entropy()."""
-
     def test_single_dominant_mode_low_entropy(self):
-        """One big eigenvalue, rest tiny → low entropy."""
-        eigenvalues = np.array([0, 100, 0.01, 0.01, 0.01])
-        S = compute_von_neumann_entropy(eigenvalues)
-        assert S < 0.5
+        """One large eigenvalue + rest tiny → low entropy."""
+        lam = np.array([0.0, 10.0, 0.01, 0.01, 0.01])
+        S = compute_von_neumann_entropy(lam)
+        assert S < 1.0
 
     def test_uniform_eigenvalues_max_entropy(self):
-        """All eigenvalues equal → maximum entropy."""
-        N = 20
-        eigenvalues = np.ones(N)
-        eigenvalues[0] = 0  # zero mode
-        S = compute_von_neumann_entropy(eigenvalues)
-        S_max = np.log(N - 1)  # max entropy = ln(n)
-        assert abs(S - S_max) < 0.01
+        """All equal eigenvalues → maximum entropy ~ ln(N)."""
+        N = 10
+        lam = np.ones(N)
+        S = compute_von_neumann_entropy(lam)
+        assert abs(S - np.log(N)) < 0.01
 
     def test_zero_eigenvalues_ignored(self):
-        """Zero eigenvalues (nullspace) should not affect entropy."""
-        eigenvalues_with_zeros = np.array([0, 0, 1.0, 2.0, 3.0])
-        eigenvalues_without = np.array([1.0, 2.0, 3.0])
-        S_with = compute_von_neumann_entropy(eigenvalues_with_zeros)
-        S_without = compute_von_neumann_entropy(eigenvalues_without)
-        assert abs(S_with - S_without) < 1e-10
+        """Zeros should be excluded from entropy calculation."""
+        lam = np.array([0.0, 0.0, 1.0, 1.0])
+        S = compute_von_neumann_entropy(lam)
+        assert abs(S - np.log(2)) < 0.01
 
     def test_entropy_non_negative(self):
-        """Entropy should always be >= 0."""
-        for _ in range(10):
-            eigenvalues = np.abs(np.random.randn(20))
-            eigenvalues[0] = 0
-            S = compute_von_neumann_entropy(eigenvalues)
-            assert S >= 0
+        rng = np.random.default_rng(42)
+        lam = rng.exponential(1.0, 20)
+        S = compute_von_neumann_entropy(lam)
+        assert S >= 0
 
     def test_empty_eigenvalues_returns_zero(self):
-        """All zeros → entropy = 0."""
-        eigenvalues = np.zeros(5)
-        S = compute_von_neumann_entropy(eigenvalues)
-        assert S == 0.0
+        assert compute_von_neumann_entropy(np.array([])) == 0.0
 
 
-class TestEffectiveOverlap:
-    """Tests for compute_effective_overlap()."""
+# ── Sector Correlations ──
 
-    def test_uniform_participation_gives_mean(self):
-        """If asset participates equally in all modes → O_eff = mean(overlaps)."""
-        N = 10
-        overlaps = np.random.rand(N)
-        # Eigenvector with equal participation: all φ_{ki} = 1/√N
-        eigvecs = np.ones((N, N)) / np.sqrt(N)
+class TestSectorCorrelations:
+    def test_identical_assets_high_correlation(self):
+        """Assets that are copies of each other should have corr ≈ 1."""
+        rng = np.random.default_rng(42)
+        base = rng.standard_normal((100, 1))
+        # 5 assets: first 3 are copies (same sector), last 2 are random
+        returns = np.hstack([
+            base + rng.standard_normal((100, 1)) * 0.01,   # 0
+            base + rng.standard_normal((100, 1)) * 0.01,   # 1
+            base + rng.standard_normal((100, 1)) * 0.01,   # 2
+            rng.standard_normal((100, 1)),                   # 3
+            rng.standard_normal((100, 1)),                   # 4
+        ])
+        tickers = ["A", "B", "C", "D", "E"]
+        sector_map = {0: [0, 1, 2], 1: [0, 1, 2], 2: [0, 1, 2]}
 
-        o_eff = compute_effective_overlap(eigvecs, overlaps, asset_idx=0)
-        expected = np.mean(overlaps)
-        assert abs(o_eff - expected) < 0.01
+        corrs = compute_sector_correlations(returns, tickers, sector_map)
+        assert corrs[0] > 0.95
+        assert corrs[1] > 0.95
+        assert corrs[2] > 0.95
 
-    def test_single_mode_participation(self):
-        """If asset only participates in mode k → O_eff = O_k."""
-        N = 10
-        overlaps = np.random.rand(N)
-        eigvecs = np.zeros((N, N))
-        eigvecs[3, 5] = 1.0  # asset 3 only in mode 5
+    def test_uncorrelated_assets_low_correlation(self):
+        """Random uncorrelated assets → correlation near 0."""
+        rng = np.random.default_rng(42)
+        returns = rng.standard_normal((200, 5))
+        tickers = ["A", "B", "C", "D", "E"]
+        sector_map = {0: [0, 1, 2], 1: [0, 1, 2], 2: [0, 1, 2]}
 
-        o_eff = compute_effective_overlap(eigvecs, overlaps, asset_idx=3)
-        assert abs(o_eff - overlaps[5]) < 1e-10
+        corrs = compute_sector_correlations(returns, tickers, sector_map)
+        for i in corrs:
+            assert abs(corrs[i]) < 0.3
 
+    def test_too_short_returns_gives_empty(self):
+        """Less than 10 days → can't compute correlations."""
+        returns = np.random.randn(5, 3)
+        corrs = compute_sector_correlations(returns, ["A", "B", "C"], {0: [0, 1, 2]})
+        assert len(corrs) == 0
+
+
+# ── ReversibilityFilter ──
 
 class TestReversibilityFilter:
-    """Tests for ReversibilityFilter class."""
+    def _make_filter(self, n=10):
+        tickers = [f"TK{i}" for i in range(n)]
+        # Create filter without config (bypass _build_sector_map)
+        filt = ReversibilityFilter.__new__(ReversibilityFilter)
+        filt.tickers = tickers
+        filt.corr_drop_threshold = 0.25
+        filt.corr_min_threshold = 0.10
+        filt.entropy_sigma_mult = 2.0
+        filt._corr_prev = {}
+        filt._corr_curr = {}
+        filt._corr_drop = {}
+        filt._entropy_curr = None
+        filt._entropy_prev = None
+        filt._delta_s = None
+        filt._entropy_history = []
+        filt.is_ready = False
+        filt.n_updates = 0
+        # Manually set sector map: 3 groups of 3 + 1 orphan
+        filt._sector_map = {
+            0: [0, 1, 2], 1: [0, 1, 2], 2: [0, 1, 2],  # TECH
+            3: [3, 4, 5], 4: [3, 4, 5], 5: [3, 4, 5],  # BANKS
+            6: [6, 7, 8], 7: [6, 7, 8], 8: [6, 7, 8],  # ENERGY
+            # 9 has no peers (singleton sector)
+        }
+        return filt
 
-    def _make_laplacian_eigenstuff(self, N=20, seed=42):
-        """Helper: create a random graph Laplacian and its eigendecomposition."""
-        rng = np.random.RandomState(seed)
-        W = rng.randn(N, N)
-        W = (W + W.T) / 2  # symmetric
-        np.fill_diagonal(W, 0)
-        D = np.diag(np.abs(W).sum(axis=1))
-        L = D - W
-        eigenvalues, eigenvectors = np.linalg.eigh(L)
-        eigenvalues = np.maximum(eigenvalues, 0)
-        return eigenvalues, eigenvectors
+    def test_not_ready_before_update(self):
+        filt = self._make_filter()
+        assert not filt.is_ready
+        assert filt.should_trade(0) is True  # default: allow
 
-    def test_not_ready_before_two_updates(self):
-        """Filter should not be ready until 2nd update."""
-        rf = ReversibilityFilter()
-        assert not rf.is_ready
+    def test_stable_sector_allows_trade(self):
+        """Assets with stable sector correlation should be tradeable."""
+        filt = self._make_filter()
+        rng = np.random.default_rng(42)
 
-        evals, evecs = self._make_laplacian_eigenstuff(seed=1)
-        rf.update(evecs, evals)
-        assert not rf.is_ready  # only 1 update
+        # Generate correlated data for tech sector (0,1,2)
+        base_tech = rng.standard_normal((100, 1))
+        base_bank = rng.standard_normal((100, 1))
+        base_ener = rng.standard_normal((100, 1))
 
-        evals2, evecs2 = self._make_laplacian_eigenstuff(seed=2)
-        rf.update(evecs2, evals2)
-        assert rf.is_ready  # now ready
+        # Both windows have same structure → stable correlations
+        ret_prev = np.hstack([
+            base_tech + rng.standard_normal((100, 1)) * 0.1,
+            base_tech + rng.standard_normal((100, 1)) * 0.1,
+            base_tech + rng.standard_normal((100, 1)) * 0.1,
+            base_bank + rng.standard_normal((100, 1)) * 0.1,
+            base_bank + rng.standard_normal((100, 1)) * 0.1,
+            base_bank + rng.standard_normal((100, 1)) * 0.1,
+            base_ener + rng.standard_normal((100, 1)) * 0.1,
+            base_ener + rng.standard_normal((100, 1)) * 0.1,
+            base_ener + rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)),
+        ])
 
-    def test_stable_graph_identified(self):
-        """Same graph twice → is_graph_stable = True."""
-        rf = ReversibilityFilter()
-        evals, evecs = self._make_laplacian_eigenstuff(seed=42)
+        base_tech2 = rng.standard_normal((100, 1))
+        base_bank2 = rng.standard_normal((100, 1))
+        base_ener2 = rng.standard_normal((100, 1))
 
-        rf.update(evecs, evals)
-        rf.update(evecs, evals)  # same graph
-        assert rf.is_graph_stable
-        assert rf.mean_overlap > 0.9
+        ret_curr = np.hstack([
+            base_tech2 + rng.standard_normal((100, 1)) * 0.1,
+            base_tech2 + rng.standard_normal((100, 1)) * 0.1,
+            base_tech2 + rng.standard_normal((100, 1)) * 0.1,
+            base_bank2 + rng.standard_normal((100, 1)) * 0.1,
+            base_bank2 + rng.standard_normal((100, 1)) * 0.1,
+            base_bank2 + rng.standard_normal((100, 1)) * 0.1,
+            base_ener2 + rng.standard_normal((100, 1)) * 0.1,
+            base_ener2 + rng.standard_normal((100, 1)) * 0.1,
+            base_ener2 + rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)),
+        ])
 
-    def test_mutated_graph_detected(self):
-        """Completely different graph → is_graph_stable may be False, low overlap."""
-        rf = ReversibilityFilter()
-        evals1, evecs1 = self._make_laplacian_eigenstuff(seed=1)
-        evals2, evecs2 = self._make_laplacian_eigenstuff(seed=99)
+        filt.update(ret_prev, ret_curr)
+        assert filt.is_ready
+        # All sector assets should be tradeable (correlation stayed high)
+        assert filt.should_trade(0) is True
+        assert filt.should_trade(3) is True
+        assert filt.should_trade(6) is True
+        # Asset 9 has no peers → always allowed
+        assert filt.should_trade(9) is True
 
-        rf.update(evecs1, evals1)
-        rf.update(evecs2, evals2)
-        # Overlap should be low
-        assert rf.mean_overlap < 0.5
+    def test_decoupled_asset_blocked(self):
+        """Asset that decorrelates from sector should be blocked."""
+        filt = self._make_filter()
+        rng = np.random.default_rng(42)
 
-    def test_should_trade_default_allows(self):
-        """Before filter is ready, should_trade returns True."""
-        rf = ReversibilityFilter()
-        assert rf.should_trade(0) is True
+        base_tech = rng.standard_normal((100, 1))
+        base_bank = rng.standard_normal((100, 1))
 
-    def test_should_trade_stable_allows(self):
-        """Stable graph → should_trade returns True for all assets."""
-        rf = ReversibilityFilter()
-        evals, evecs = self._make_laplacian_eigenstuff(seed=42)
-        rf.update(evecs, evals)
-        rf.update(evecs, evals)
+        # Previous window: TK0 is correlated with tech sector
+        ret_prev = np.hstack([
+            base_tech + rng.standard_normal((100, 1)) * 0.1,  # TK0 = tech
+            base_tech + rng.standard_normal((100, 1)) * 0.1,  # TK1 = tech
+            base_tech + rng.standard_normal((100, 1)) * 0.1,  # TK2 = tech
+            base_bank + rng.standard_normal((100, 1)) * 0.1,
+            base_bank + rng.standard_normal((100, 1)) * 0.1,
+            base_bank + rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)),
+        ])
 
-        for i in range(20):
-            assert rf.should_trade(i) is True
+        base_tech2 = rng.standard_normal((100, 1))
+        base_bank2 = rng.standard_normal((100, 1))
+
+        # Current window: TK0 decoupled (random), but TK1,TK2 still correlated
+        ret_curr = np.hstack([
+            rng.standard_normal((100, 1)),                     # TK0 = DECOUPLED
+            base_tech2 + rng.standard_normal((100, 1)) * 0.1,  # TK1 = tech
+            base_tech2 + rng.standard_normal((100, 1)) * 0.1,  # TK2 = tech
+            base_bank2 + rng.standard_normal((100, 1)) * 0.1,
+            base_bank2 + rng.standard_normal((100, 1)) * 0.1,
+            base_bank2 + rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)) * 0.1,
+            rng.standard_normal((100, 1)),
+        ])
+
+        filt.update(ret_prev, ret_curr)
+        assert filt.is_ready
+
+        # TK0 decorrelated from sector → should be blocked
+        # Its sector corr should have dropped significantly
+        corr_0 = filt.asset_sector_corr(0)
+        assert corr_0 < 0.3, f"TK0 should have low sector corr, got {corr_0}"
+
+        # TK1, TK2 still correlated → should have HIGHER sector corr than TK0
+        assert filt.asset_sector_corr(1) > corr_0, "TK1 should be more correlated than decoupled TK0"
 
     def test_diagnostics_returns_dict(self):
-        """get_diagnostics should return a well-formed dict."""
-        rf = ReversibilityFilter()
-        evals, evecs = self._make_laplacian_eigenstuff(seed=42)
-        rf.update(evecs, evals)
-        rf.update(evecs, evals)
+        filt = self._make_filter()
+        rng = np.random.default_rng(42)
+        ret = rng.standard_normal((100, 10))
+        eigenvalues = rng.exponential(1.0, 10)
+        filt.update(ret, ret, eigenvalues)
 
-        diag = rf.get_diagnostics()
+        diag = filt.get_diagnostics()
         assert isinstance(diag, dict)
-        assert "is_ready" in diag
-        assert "mean_overlap" in diag
+        assert "mean_sector_corr" in diag
+        assert "mean_corr_drop" in diag
         assert "filter_rate" in diag
-        assert diag["is_ready"] is True
-        assert diag["filter_rate"] == 0.0  # stable graph, nothing filtered
+        assert "entropy" in diag
 
+    def test_entropy_tracking(self):
+        filt = self._make_filter()
+        rng = np.random.default_rng(42)
+        ret = rng.standard_normal((100, 10))
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        lam1 = np.ones(10)
+        filt.update(ret, ret, lam1)
+        assert filt.entropy > 0
+
+        lam2 = np.array([10.0] + [0.1]*9)
+        filt.update(ret, ret, lam2)
+        assert filt.delta_entropy != 0

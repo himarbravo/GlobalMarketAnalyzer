@@ -105,7 +105,18 @@ class SignalGenerator:
 
         # ── 5. P7: Reversibility filter ──
         logger.info("[5/7] Filtro de reversibilidad P7...")
-        self.rev_filter.update(self.gb.eigenvectors, self.gb.eigenvalues)
+        self.rev_filter.set_tickers(self.gb.tickers)
+        # Two windows of returns: previous 120d and current 120d
+        returns_arr = self.gb.returns.fillna(0).values
+        T = len(returns_arr)
+        win = min(120, T // 2)
+        if T > win * 2:
+            ret_prev = returns_arr[T - 2*win:T - win]
+            ret_curr = returns_arr[T - win:T]
+        else:
+            ret_prev = returns_arr[:T//2]
+            ret_curr = returns_arr[T//2:]
+        self.rev_filter.update(ret_prev, ret_curr, self.gb.eigenvalues)
 
         # ── 6. Generar señales ──
         logger.info("[6/7] Generando señales...")
@@ -248,11 +259,11 @@ class SignalGenerator:
             asset_cold = z < -1.0
             asset_hot = z > 1.0
 
-            # P7: Reversibility check — skip assets with rotated modes
+            # P7: Reversibility check — skip assets decoupled from sector
             rev_tradeable = True
-            asset_rev_overlap = 1.0
+            asset_sector_c = 1.0
             if self.rev_filter.is_ready:
-                asset_rev_overlap = self.rev_filter.asset_overlap(i)
+                asset_sector_c = self.rev_filter.asset_sector_corr(i)
                 rev_tradeable = self.rev_filter.should_trade(i)
 
             # Determine signal

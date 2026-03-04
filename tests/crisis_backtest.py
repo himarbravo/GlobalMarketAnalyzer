@@ -26,6 +26,7 @@ from db.database_manager import DatabaseManager
 from core.graph_builder import GraphBuilder
 from core.fundamental_filter import FundamentalFilter
 from core.heat_engine import HeatEngine
+from core.reversibility import ReversibilityFilter
 import config
 
 logging.basicConfig(level=logging.WARNING)
@@ -165,6 +166,20 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
     n_trades_combo = 0
     warmup = 80
     s_timeline = []  # Track s values over time for diagnostic
+
+    # P7: Reversibility filter (sector-based)
+    rev_filter = ReversibilityFilter(tickers=gb.tickers)
+    # Initial update with two halves of returns
+    returns_arr = gb.returns.fillna(0).values
+    T_ret = len(returns_arr)
+    win = min(120, T_ret // 2)
+    if T_ret > win * 2:
+        ret_prev = returns_arr[T_ret - 2*win:T_ret - win]
+        ret_curr = returns_arr[T_ret - win:T_ret]
+    else:
+        ret_prev = returns_arr[:T_ret//2]
+        ret_curr = returns_arr[T_ret//2:]
+    rev_filter.update(ret_prev, ret_curr, gb.eigenvalues)
 
     # P5: Fundamental scores for quality filter
     fund_scores = ff.scores if hasattr(ff, 'scores') else {}
@@ -441,23 +456,33 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
     # ── Credit spread delta anticipation ──
     credit_anticipation = _analyze_credit_anticipation(gb, dates, crisis)
 
-    # ── Hit rate analysis ──
+    # ── Hit rate analysis (original + P7-filtered) ──
     hits = 0
     total = 0
+    hits_p7 = 0
+    total_p7 = 0
     for t in range(warmup, T - 6):
         if z is None or t >= len(z):
             continue
         for i in range(N):
-            zt = z[t, i]
-            if abs(zt) < 1.5 or np.isnan(zt):
+            zt_val = z[t, i]
+            if abs(zt_val) < 1.5 or np.isnan(zt_val):
                 continue
             ret_5d = np.nansum(returns[t + 1:t + 6, i])
             if np.isnan(ret_5d):
                 continue
-            if (zt > 0 and ret_5d < 0) or (zt < 0 and ret_5d > 0):
+            correct = (zt_val > 0 and ret_5d < 0) or (zt_val < 0 and ret_5d > 0)
+            if correct:
                 hits += 1
             total += 1
+            # P7: Only count assets the filter would allow
+            if rev_filter.is_ready and rev_filter.should_trade(i):
+                if correct:
+                    hits_p7 += 1
+                total_p7 += 1
     hit_rate = hits / max(total, 1)
+    hit_rate_p7 = hits_p7 / max(total_p7, 1) if total_p7 > 0 else hit_rate
+    p7_filter_pct = 1 - total_p7 / max(total, 1) if total > 0 else 0
 
     result = {
         "crisis": name,
@@ -481,6 +506,9 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
         "n_trades_pairs": n_trades_pairs,
         "n_trades_combo": n_trades_combo,
         "hit_rate_5d": hit_rate,
+        "hit_rate_5d_p7": hit_rate_p7,
+        "p7_filter_pct": p7_filter_pct,
+        "p7_diagnostics": rev_filter.get_diagnostics(),
         "s_anticipation": s_anticipation,
         "credit_anticipation": credit_anticipation,
     }
@@ -496,11 +524,14 @@ def run_crisis_backtest(db, crisis: dict) -> dict:
         lead = credit_anticipation.get("credit_lead_days", "N/A")
         print(f"  Credit delta lead: widened {lead} days before crisis")
 
-    print(f"  Hit rate (5d): {hit_rate:.1%}")
+    print(f"  Hit rate (5d):     {hit_rate:.1%} ({total} signals)")
+    print(f"  Hit rate P7 (5d):  {hit_rate_p7:.1%} ({total_p7} signals, {p7_filter_pct:.0%} filtered)")
+    p7d = rev_filter.get_diagnostics()
+    print(f"  P7 sector corr:    {p7d.get('mean_sector_corr', 0):.3f}")
+    print(f"  P7 entropy:        {rev_filter.entropy:.4f} (ΔS={rev_filter.delta_entropy:+.4f})")
     print(f"  MR α vs SPY: {result['alpha_vs_spy']:+.1f}%")
     print(f"  Pairs α vs SPY: {result['pairs_vs_spy']:+.1f}%")
     print(f"  Gate α vs SPY: {result['gate_vs_spy']:+.1f}%")
-
     return result
 
 
