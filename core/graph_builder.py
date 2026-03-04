@@ -141,10 +141,27 @@ class GraphBuilder:
             from datetime import datetime, timedelta
             start_date = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
 
-        # --- Assets ---
-        assets_resp = self.db.client.table("assets").select(
-            "ticker, currency"
-        ).eq("is_active", True).execute()
+        # --- Assets (with retry) ---
+        assets_resp = None
+        for attempt in range(4):
+            try:
+                assets_resp = self.db.client.table("assets").select(
+                    "ticker, currency"
+                ).eq("is_active", True).execute()
+                break
+            except Exception as e:
+                if attempt < 3:
+                    import time
+                    wait = 2 ** (attempt + 1)
+                    logger.warning(f"load_data assets retry {attempt+1}/3 in {wait}s: {e}")
+                    time.sleep(wait)
+                    try:
+                        from db.database_manager import get_client
+                        self.db.client = get_client(use_service_role=True)
+                    except Exception:
+                        pass
+                else:
+                    raise
 
         if not assets_resp.data:
             raise ValueError("No hay activos en la DB")
@@ -195,13 +212,29 @@ class GraphBuilder:
         macro_data = []
         offset = 0
         while True:
-            q = self.db.client.table("macro_indicators").select(
-                "date, vix, yield_10y, yield_2y, dxy, copper, oil_wti"
-            ).order("date")
-            if start_date:
-                q = q.gte("date", start_date)
-            q = q.range(offset, offset + 999)
-            resp = q.execute()
+            for attempt in range(4):
+                try:
+                    q = self.db.client.table("macro_indicators").select(
+                        "date, vix, yield_10y, yield_2y, dxy, copper, oil_wti"
+                    ).order("date")
+                    if start_date:
+                        q = q.gte("date", start_date)
+                    q = q.range(offset, offset + 999)
+                    resp = q.execute()
+                    break  # success
+                except Exception as e:
+                    if attempt < 3:
+                        import time
+                        wait = 2 ** (attempt + 1)
+                        logger.warning(f"macro retry {attempt+1}/3 in {wait}s: {e}")
+                        time.sleep(wait)
+                        try:
+                            from db.database_manager import get_client
+                            self.db.client = get_client(use_service_role=True)
+                        except Exception:
+                            pass
+                    else:
+                        raise
             if not resp.data:
                 break
             macro_data.extend(resp.data)

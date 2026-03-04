@@ -32,9 +32,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ── Default thresholds ──
-OVERLAP_THRESHOLD = 0.7     # O_eff,i > this → asset's modes are stable
-ENTROPY_SIGMA_MULT = 1.0    # |ΔS| > this × σ_S → graph in transition
+OVERLAP_THRESHOLD = 0.3     # O_eff,i > this → asset's modes are stable
+ENTROPY_SIGMA_MULT = 2.0    # |ΔS| > this × σ_S → graph in transition
 DEGENERACY_TOL = 0.05       # eigenvalues within this relative gap → degenerate
+K_MODES_DEFAULT = None      # number of modes to track (None = sqrt(N))
 
 
 def compute_modal_overlap(eigvecs_old: np.ndarray,
@@ -186,9 +187,11 @@ class ReversibilityFilter:
     """
 
     def __init__(self, overlap_threshold: float = OVERLAP_THRESHOLD,
-                 entropy_sigma_mult: float = ENTROPY_SIGMA_MULT):
+                 entropy_sigma_mult: float = ENTROPY_SIGMA_MULT,
+                 n_modes: int = K_MODES_DEFAULT):
         self.overlap_threshold = overlap_threshold
         self.entropy_sigma_mult = entropy_sigma_mult
+        self.n_modes = n_modes  # None = auto (sqrt(N))
 
         # State
         self._eigvecs_prev = None
@@ -241,10 +244,15 @@ class ReversibilityFilter:
             self._asset_overlaps = {}
             return
 
-        # Compute modal overlap
+        # Compute modal overlap (top K modes only)
+        N = eigvecs.shape[1]
+        k = self.n_modes or max(5, int(np.sqrt(N)))
+        self._n_modes_used = k
+
         self._overlaps = compute_modal_overlap(
             self._eigvecs_prev, self._eigvecs_curr,
-            eigenvalues_new=self._eigvals_curr
+            eigenvalues_new=self._eigvals_curr,
+            n_modes=k
         )
 
         # Compute ΔS
@@ -311,8 +319,9 @@ class ReversibilityFilter:
             return 1.0  # assume stable if no data
 
         if asset_idx not in self._asset_overlaps:
+            k = getattr(self, '_n_modes_used', None)
             self._asset_overlaps[asset_idx] = compute_effective_overlap(
-                self._eigvecs_curr, self._overlaps, asset_idx
+                self._eigvecs_curr, self._overlaps, asset_idx, n_modes=k
             )
 
         return self._asset_overlaps[asset_idx]

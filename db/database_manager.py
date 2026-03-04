@@ -44,6 +44,45 @@ class DatabaseManager:
         self.client: Client = get_client(use_service_role=True)
         logger.info(f"✓ Conectado a Supabase: {config.SUPABASE_URL}")
 
+    def _execute_with_retry(self, query, max_attempts: int = 4):
+        """
+        Execute a Supabase query with exponential backoff and reconnect.
+
+        Handles: connection resets, timeouts, transient network errors.
+        On each failure we also recreate the client to get a fresh connection.
+        """
+        import time
+        last_exc = None
+        for attempt in range(max_attempts):
+            try:
+                return query.execute()
+            except Exception as e:
+                last_exc = e
+                err_msg = str(e).lower()
+                is_transient = any(x in err_msg for x in [
+                    'connection reset', 'connection refused', 'timed out',
+                    'timeout', 'eof', 'broken pipe', 'connecterror',
+                    'too many connections', 'reset by peer',
+                ])
+                if not is_transient or attempt >= max_attempts - 1:
+                    raise
+                wait = 2 ** (attempt + 1)  # 2, 4, 8 seconds
+                logger.warning(
+                    f"Supabase transient error (attempt {attempt+1}/{max_attempts}), "
+                    f"retrying in {wait}s: {e}"
+                )
+                time.sleep(wait)
+                # Recreate client for a fresh connection
+                try:
+                    self.client = get_client(use_service_role=True)
+                except Exception:
+                    pass
+                # Rebuild the query against the new client — not possible for
+                # a built query, so caller must retry from scratch.
+                # We raise after reconnect so the caller retries if wrapped properly.
+                raise  # let the caller loop re-issue the query
+        raise last_exc
+
     # ─── ASSETS ──────────────────────────────────────────────────────────────
 
     def upsert_asset(self, ticker: str, name: str = None, sector: str = None,
@@ -64,22 +103,46 @@ class DatabaseManager:
 
     def get_all_active_tickers(self) -> list[str]:
         """Devuelve todos los tickers activos del catálogo."""
-        res = (self.client.table("assets")
-               .select("ticker")
-               .eq("is_active", True)
-               .order("ticker")
-               .execute())
-        return [r["ticker"] for r in res.data]
+        for attempt in range(4):
+            try:
+                res = (self.client.table("assets")
+                       .select("ticker")
+                       .eq("is_active", True)
+                       .order("ticker")
+                       .execute())
+                return [r["ticker"] for r in res.data]
+            except Exception as e:
+                if attempt < 3:
+                    import time
+                    time.sleep(2 ** (attempt + 1))
+                    try:
+                        self.client = get_client(use_service_role=True)
+                    except Exception:
+                        pass
+                else:
+                    raise
 
     def get_assets(self, asset_type: str = None, sector: str = None) -> pd.DataFrame:
         """Devuelve catálogo de activos como DataFrame, con filtros opcionales."""
-        query = self.client.table("assets").select("*")
-        if asset_type:
-            query = query.eq("asset_type", asset_type)
-        if sector:
-            query = query.eq("sector", sector)
-        res = query.order("ticker").execute()
-        return pd.DataFrame(res.data)
+        for attempt in range(4):
+            try:
+                query = self.client.table("assets").select("*")
+                if asset_type:
+                    query = query.eq("asset_type", asset_type)
+                if sector:
+                    query = query.eq("sector", sector)
+                res = query.order("ticker").execute()
+                return pd.DataFrame(res.data)
+            except Exception as e:
+                if attempt < 3:
+                    import time
+                    time.sleep(2 ** (attempt + 1))
+                    try:
+                        self.client = get_client(use_service_role=True)
+                    except Exception:
+                        pass
+                else:
+                    raise
 
     # ─── PRICES ──────────────────────────────────────────────────────────────
 
@@ -127,16 +190,27 @@ class DatabaseManager:
             query = query.order("date", desc=False)
             query = query.range(offset, offset + page_size - 1)
 
-            # Retry with backoff for connection issues
+            # Retry with backoff + reconnect for connection issues
             res = None
-            for attempt in range(3):
+            for attempt in range(4):
                 try:
                     res = query.execute()
                     break
                 except Exception as e:
-                    if attempt < 2:
+                    err_msg = str(e).lower()
+                    is_transient = any(x in err_msg for x in [
+                        'connection reset', 'timed out', 'timeout',
+                        'eof', 'broken pipe', 'connecterror', 'reset by peer'
+                    ])
+                    if attempt < 3 and is_transient:
                         import time
-                        time.sleep(2 ** (attempt + 1))  # 2, 4, 8 seconds
+                        wait = 2 ** (attempt + 1)  # 2, 4, 8, 16s
+                        logger.warning(f"get_prices retry {attempt+1}/3 in {wait}s: {e}")
+                        time.sleep(wait)
+                        try:
+                            self.client = get_client(use_service_role=True)
+                        except Exception:
+                            pass
                     else:
                         raise
             if res is None or not res.data:
@@ -245,11 +319,23 @@ class DatabaseManager:
 
     def get_fundamentals(self, ticker: str = None) -> pd.DataFrame:
         """Devuelve fundamentales de uno o todos los activos."""
-        query = self.client.table("fundamentals").select("*")
-        if ticker:
-            query = query.eq("ticker", ticker).order("report_date", desc=True)
-        res = query.execute()
-        return pd.DataFrame(res.data)
+        for attempt in range(4):
+            try:
+                query = self.client.table("fundamentals").select("*")
+                if ticker:
+                    query = query.eq("ticker", ticker).order("report_date", desc=True)
+                res = query.execute()
+                return pd.DataFrame(res.data)
+            except Exception as e:
+                if attempt < 3:
+                    import time
+                    time.sleep(2 ** (attempt + 1))
+                    try:
+                        self.client = get_client(use_service_role=True)
+                    except Exception:
+                        pass
+                else:
+                    raise
 
     # ─── MACRO ────────────────────────────────────────────────────────────────
 
@@ -275,17 +361,29 @@ class DatabaseManager:
 
     def get_macro(self, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """Devuelve indicadores macro en un rango de fechas."""
-        query = self.client.table("macro_indicators").select("*")
-        if start_date:
-            query = query.gte("date", start_date)
-        if end_date:
-            query = query.lte("date", end_date)
-        res = query.order("date", desc=False).execute()
-        df = pd.DataFrame(res.data)
-        if not df.empty:
-            df["date"] = pd.to_datetime(df["date"])
-            df = df.set_index("date")
-        return df
+        for attempt in range(4):
+            try:
+                query = self.client.table("macro_indicators").select("*")
+                if start_date:
+                    query = query.gte("date", start_date)
+                if end_date:
+                    query = query.lte("date", end_date)
+                res = query.order("date", desc=False).execute()
+                df = pd.DataFrame(res.data)
+                if not df.empty:
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.set_index("date")
+                return df
+            except Exception as e:
+                if attempt < 3:
+                    import time
+                    time.sleep(2 ** (attempt + 1))
+                    try:
+                        self.client = get_client(use_service_role=True)
+                    except Exception:
+                        pass
+                else:
+                    raise
 
     def get_macro_latest(self) -> Optional[dict]:
         """Devuelve el último registro macro disponible."""
@@ -298,21 +396,30 @@ class DatabaseManager:
 
     def get_macro_column(self, column: str) -> Optional[pd.Series]:
         """P2.2: Returns a single macro column as a pd.Series indexed by date."""
-        try:
-            res = (self.client.table("macro_indicators")
-                   .select(f"date,{column}")
-                   .not_.is_(column, "null")
-                   .order("date", desc=False)
-                   .limit(2000)
-                   .execute())
-            if not res.data:
-                return None
-            df = pd.DataFrame(res.data)
-            df["date"] = pd.to_datetime(df["date"])
-            df = df.set_index("date")
-            return df[column].astype(float)
-        except Exception:
-            return None
+        for attempt in range(4):
+            try:
+                res = (self.client.table("macro_indicators")
+                       .select(f"date,{column}")
+                       .not_.is_(column, "null")
+                       .order("date", desc=False)
+                       .limit(2000)
+                       .execute())
+                if not res.data:
+                    return None
+                df = pd.DataFrame(res.data)
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date")
+                return df[column].astype(float)
+            except Exception as e:
+                if attempt < 3:
+                    import time
+                    time.sleep(2 ** (attempt + 1))
+                    try:
+                        self.client = get_client(use_service_role=True)
+                    except Exception:
+                        pass
+                else:
+                    return None  # macro column non-fatal — return None on failure
 
     # ─── KALMAN STATE (P3.2) ─────────────────────────────────────────────────
 
