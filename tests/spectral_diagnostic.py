@@ -88,16 +88,55 @@ def modal_overlap(phi_old, phi_new, k_max=10):
     return overlaps
 
 
-def compute_rolling_graph(gb, returns_df, window=60, step=20):
+def ledoit_wolf_shrinkage(X):
+    """Ledoit-Wolf shrinkage estimator for covariance/correlation.
+    X: (T, N) matrix of returns. Returns shrunk correlation matrix."""
+    T, N = X.shape
+    # Handle NaN: replace with 0
+    X = np.nan_to_num(X, nan=0.0)
+    # Standardize
+    means = X.mean(axis=0)
+    X_c = X - means
+    stds = X_c.std(axis=0)
+    stds[stds < 1e-10] = 1.0
+    X_s = X_c / stds
+
+    # Sample correlation
+    S = (X_s.T @ X_s) / T
+    np.fill_diagonal(S, 1.0)  # ensure diagonal is 1
+
+    # Target: identity (uncorrelated)
+    F = np.eye(N)
+
+    # Optimal shrinkage intensity (simplified Ledoit-Wolf)
+    d2 = np.sum((S - F) ** 2) / N
+    # Simplified b2 estimate (faster than O(N²) loop)
+    b2 = min(1.0 / T, d2)
+
+    # Shrinkage intensity
+    alpha = min(b2 / max(d2, 1e-10), 1.0)
+    alpha = max(alpha, 0.01)  # minimum 1% shrinkage
+
+    # Shrunk estimator
+    S_shrunk = alpha * F + (1 - alpha) * S
+    return S_shrunk, alpha
+
+
+def compute_rolling_graph(gb, returns_df, window=60, step=20, use_shrinkage=False):
     """Build graphs at different time points using rolling windows."""
     N = returns_df.shape[1]
     dates = returns_df.index
     results = []
 
     for t in range(window, len(dates), step):
-        window_data = returns_df.iloc[t - window:t]
-        # Compute correlation matrix for this window
-        corr = window_data.corr().fillna(0).values
+        window_data = returns_df.iloc[t - window:t].values
+
+        if use_shrinkage:
+            corr, alpha = ledoit_wolf_shrinkage(window_data)
+        else:
+            corr_df = pd.DataFrame(window_data).corr().fillna(0)
+            corr = corr_df.values
+
         # Build W and L
         W = np.abs(corr)
         np.fill_diagonal(W, 0)
