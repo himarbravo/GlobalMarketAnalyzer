@@ -360,30 +360,47 @@ class DatabaseManager:
         return total
 
     def get_macro(self, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-        """Devuelve indicadores macro en un rango de fechas."""
-        for attempt in range(4):
-            try:
-                query = self.client.table("macro_indicators").select("*")
-                if start_date:
-                    query = query.gte("date", start_date)
-                if end_date:
-                    query = query.lte("date", end_date)
-                res = query.order("date", desc=False).execute()
-                df = pd.DataFrame(res.data)
-                if not df.empty:
-                    df["date"] = pd.to_datetime(df["date"])
-                    df = df.set_index("date")
-                return df
-            except Exception as e:
-                if attempt < 3:
-                    import time
-                    time.sleep(2 ** (attempt + 1))
-                    try:
-                        self.client = get_client(use_service_role=True)
-                    except Exception:
-                        pass
-                else:
-                    raise
+        """Devuelve indicadores macro en un rango de fechas (with pagination)."""
+        all_data = []
+        page_size = 1000
+        offset = 0
+
+        while True:
+            for attempt in range(4):
+                try:
+                    query = self.client.table("macro_indicators").select("*")
+                    if start_date:
+                        query = query.gte("date", start_date)
+                    if end_date:
+                        query = query.lte("date", end_date)
+                    query = query.order("date", desc=False)
+                    query = query.range(offset, offset + page_size - 1)
+                    res = query.execute()
+                    break
+                except Exception as e:
+                    if attempt < 3:
+                        import time
+                        time.sleep(2 ** (attempt + 1))
+                        try:
+                            self.client = get_client(use_service_role=True)
+                        except Exception:
+                            pass
+                    else:
+                        raise
+
+            if not res.data:
+                break
+            all_data.extend(res.data)
+            if len(res.data) < page_size:
+                break
+            offset += page_size
+
+        df = pd.DataFrame(all_data)
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            df = df.sort_index()
+        return df
 
     def get_macro_latest(self) -> Optional[dict]:
         """Devuelve el último registro macro disponible."""
