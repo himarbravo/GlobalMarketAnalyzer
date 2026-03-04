@@ -162,8 +162,23 @@ class FundamentalFilter:
         Calcula scores para todos los activos con datos fundamentales.
         Returns DataFrame con columns: ticker, F, f, classification.
         """
-        # Fetch all fundamentals
-        resp = self.db.client.table("fundamentals").select("*").execute()
+        # Fetch all fundamentals (with retry)
+        resp = None
+        for attempt in range(4):
+            try:
+                resp = self.db.client.table("fundamentals").select("*").execute()
+                break
+            except Exception as e:
+                if attempt < 3:
+                    import time
+                    time.sleep(2 ** (attempt + 1))
+                    try:
+                        from db.database_manager import get_client
+                        self.db.client = get_client(use_service_role=True)
+                    except Exception:
+                        pass
+                else:
+                    raise
         if not resp.data:
             return pd.DataFrame()
 
@@ -212,8 +227,23 @@ class FundamentalFilter:
             result_df.at[idx, "f"] = f
             result_df.at[idx, "classification"] = cls
 
-        # Activos sin fundamentales (ETFs, crypto) → neutral / speculative
-        all_assets = self.db.client.table("assets").select("ticker,asset_type").execute()
+        # Assets without fundamentals (ETFs, crypto) → neutral / speculative
+        for attempt in range(4):
+            try:
+                all_assets = self.db.client.table("assets").select("ticker,asset_type").execute()
+                break
+            except Exception as e:
+                if attempt < 3:
+                    import time
+                    time.sleep(2 ** (attempt + 1))
+                    try:
+                        from db.database_manager import get_client
+                        self.db.client = get_client(use_service_role=True)
+                    except Exception:
+                        pass
+                else:
+                    all_assets = type('obj', (object,), {'data': []})()  # empty fallback
+                    break
         if all_assets.data:
             for asset in all_assets.data:
                 t = asset["ticker"]
