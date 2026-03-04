@@ -703,3 +703,63 @@ graph TD
     FM -->|No| SA["SKIP ALL: sectores mutaron"]
 ```
 
+---
+
+## 14. Benchmarks — Marcas a Superar
+
+> [!IMPORTANT]
+> Estos son los **mejores resultados medidos** del proyecto a fecha 2026-03-04. Cualquier cambio en el modelo debe demostrar mejora sobre estos números. Si un cambio empeora alguno sin mejorar otro, es una regresión.
+
+### 14.1 Modelo Físico
+
+| Métrica | Valor | Condiciones |
+|---|---|---|
+| R² solver O-U (OOS) | **> 0.97** | Walk-forward, parámetros congelados |
+| Drift α (cross-val) | CV = **0.16** | 3-fold temporal |
+| Caída R² train → test | **+0.013** | Generalización mínima |
+
+### 14.2 Protección en Crisis (Regime Gate)
+
+| Métrica | Sin gate | Mejor gate | Mejora |
+|---|---|---|---|
+| MaxDD medio (3 crisis) | -49.2% | **-14.1%** (s-gate P5) | +35pp |
+| MaxDD Volmageddon | -56.9% | **-3.5%** (Combo P6) | +53pp |
+| MaxDD COVID | -31.5% | **-10.8%** (s-gate P5) | +21pp |
+| MaxDD Fed 2022 | -59.3% | **-18.5%** (Combo P6) | +41pp |
+
+### 14.3 Anticipación (UKF)
+
+| Crisis | Lead time |
+|---|---|
+| Volmageddon 2018 | **132 días** |
+| Fed Rate Hikes 2022 | **103 días** |
+| COVID 2020 (experimental) | **151 días** |
+
+### 14.4 Predicción ML (El Matemático)
+
+| Target | Mejor AUC/R² | Método | Feature top |
+|---|---|---|---|
+| **Yield curve** (steepen 20d) | AUC **0.654** | Macro only | yield_10y |
+| **VIX dirección** (up 5d) | AUC **0.614** | Macro only | yield_spread |
+| **Tail risk** (>5% drawdown) | AUC **0.646** | Macro + eigen crudos | graph_top3_ratio |
+| Vol 5d | R² **0.161** | Macro + GraphBuilder | vix |
+| Vol 20d | R² **0.115** | Macro + GraphBuilder | vix |
+
+### 14.5 Estrategia Combinada (tail risk)
+
+| Métrica | Estrategia | B&H SPY |
+|---|---|---|
+| **Sharpe ratio** | **1.62** | 1.26 |
+| Return anual | +21.7% | +20.3% |
+| Volatilidad | 13.4% | 16.1% |
+| Max drawdown | **-15.0%** | -18.8% |
+
+### 14.6 Lo que NO funciona (anti-benchmarks)
+
+| Métrica | Valor | Implicación |
+|---|---|---|
+| Hit rate z-scores MR | **~50%** | Sin edge — el equilibrio se mueve |
+| SPY dirección AUC | **0.372** | Peor que random — no se puede predecir dirección |
+| Retorno en bull 2019 (Combo) | **-8.7%** | Pierde dinero incluso en mercado alcista |
+| Retorno en AI Rally (Combo) | **-15.1%** | Idem |
+| P7 sector filter Δ hit rate | **+0.28pp** | Mejora marginal — no resuelve el problema central |

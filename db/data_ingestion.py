@@ -597,6 +597,139 @@ def ingest_fundamentals(db: DatabaseManager, tickers: list) -> dict:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# INGESTA FUNDAMENTALS HISTÓRICOS (trimestral)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _safe_get(df, row_name, col):
+    """Safely extract a value from a yfinance quarterly DataFrame."""
+    try:
+        if row_name in df.index and col in df.columns:
+            v = df.at[row_name, col]
+            if pd.notna(v):
+                return float(v)
+    except Exception:
+        pass
+    return None
+
+
+def ingest_fundamentals_historical(db: DatabaseManager, tickers: list) -> dict:
+    """
+    Descarga datos fundamentales TRIMESTRALES históricos de yfinance.
+    Usa quarterly_financials, quarterly_balance_sheet, quarterly_cashflow.
+    Crea una fila por (ticker, quarter) con métricas para momentum fundamental.
+    """
+    summary = {}
+
+    for ticker in tickers:
+        try:
+            t = yf.Ticker(ticker)
+
+            # Fetch quarterly statements
+            qf = t.quarterly_financials  # income statement
+            qb = t.quarterly_balance_sheet
+            qc = t.quarterly_cashflow
+
+            if qf is None or qf.empty:
+                logger.warning(f"  ⚠ {ticker}: no quarterly financials")
+                summary[ticker] = 0
+                continue
+
+            quarters = sorted(qf.columns)  # Timestamps
+            count = 0
+
+            for q_date in quarters:
+                q_str = q_date.strftime("%Y-%m-%d")
+                fiscal_q = f"{q_date.year}Q{(q_date.month - 1) // 3 + 1}"
+
+                # === Income Statement ===
+                revenue = _safe_get(qf, 'Total Revenue', q_date)
+                gross_profit = _safe_get(qf, 'Gross Profit', q_date)
+                operating_income = _safe_get(qf, 'Operating Income', q_date)
+                net_income = _safe_get(qf, 'Net Income', q_date)
+                ebitda = _safe_get(qf, 'EBITDA', q_date) or _safe_get(qf, 'Normalized EBITDA', q_date)
+                ebit = _safe_get(qf, 'EBIT', q_date)
+                eps = _safe_get(qf, 'Diluted EPS', q_date) or _safe_get(qf, 'Basic EPS', q_date)
+                rd_expense = _safe_get(qf, 'Research And Development', q_date)
+                cost_of_revenue = _safe_get(qf, 'Cost Of Revenue', q_date)
+
+                # === Balance Sheet ===
+                total_assets = _safe_get(qb, 'Total Assets', q_date) if qb is not None else None
+                total_debt = _safe_get(qb, 'Total Debt', q_date) if qb is not None else None
+                net_debt = _safe_get(qb, 'Net Debt', q_date) if qb is not None else None
+                equity = _safe_get(qb, 'Stockholders Equity', q_date) if qb is not None else None
+                invested_capital = _safe_get(qb, 'Invested Capital', q_date) if qb is not None else None
+                working_capital = _safe_get(qb, 'Working Capital', q_date) if qb is not None else None
+                cash = _safe_get(qb, 'Cash And Cash Equivalents', q_date) if qb is not None else None
+                shares = _safe_get(qb, 'Share Issued', q_date) or _safe_get(qb, 'Ordinary Shares Number', q_date) if qb is not None else None
+
+                # === Cash Flow ===
+                fcf = _safe_get(qc, 'Free Cash Flow', q_date) if qc is not None else None
+                capex = _safe_get(qc, 'Capital Expenditure', q_date) if qc is not None else None
+                op_cashflow = _safe_get(qc, 'Operating Cash Flow', q_date) if qc is not None else None
+                buyback = _safe_get(qc, 'Repurchase Of Capital Stock', q_date) if qc is not None else None
+
+                # === Derived Metrics ===
+                gross_margin = (gross_profit / revenue) if revenue and gross_profit else None
+                operating_margin = (operating_income / revenue) if revenue and operating_income else None
+                net_margin = (net_income / revenue) if revenue and net_income else None
+                roe = (net_income / equity) if equity and net_income and equity != 0 else None
+                roa = (net_income / total_assets) if total_assets and net_income and total_assets != 0 else None
+                roic = (ebit * (1 - 0.21) / invested_capital) if ebit and invested_capital and invested_capital != 0 else None
+                rd_pct = (rd_expense / revenue) if revenue and rd_expense else None
+                debt_to_equity = (total_debt / equity) if equity and total_debt and equity != 0 else None
+
+                data = {
+                    "fiscal_quarter":    fiscal_q,
+                    "revenue":           revenue,
+                    "earnings":          net_income,
+                    "ebitda":            ebitda,
+                    "eps":               eps,
+                    "gross_margin":      R(gross_margin),
+                    "operating_margin":  R(operating_margin),
+                    "net_margin":        R(net_margin),
+                    "roe":               R(roe),
+                    "roa":               R(roa),
+                    "roic":              R(roic),
+                    "free_cash_flow":    fcf,
+                    "operating_cash_flow": op_cashflow,
+                    "capex":             capex,
+                    "total_assets":      total_assets,
+                    "total_debt":        total_debt,
+                    "net_debt":          net_debt,
+                    "cash":              cash,
+                    "debt_to_equity":    R(debt_to_equity),
+                    "working_capital":   working_capital,
+                    "shares_outstanding": shares,
+                }
+
+                # Clean NaN/Inf
+                clean_data = {}
+                for k, v in data.items():
+                    if isinstance(v, (float, np.floating)):
+                        if np.isnan(v) or np.isinf(v):
+                            clean_data[k] = None
+                        else:
+                            clean_data[k] = round(float(v), 6) if abs(v) < 1e12 else float(v)
+                    else:
+                        clean_data[k] = v
+
+                db.upsert_fundamentals(ticker, q_str, clean_data)
+                count += 1
+
+            summary[ticker] = count
+            logger.info(f"  ✓ {ticker:<12} {count} quarters")
+            time.sleep(0.5)  # Rate limit
+
+        except Exception as e:
+            logger.error(f"  ✗ {ticker}: {e}")
+            summary[ticker] = 0
+
+    total = sum(v for v in summary.values() if isinstance(v, int))
+    logger.info(f"\n  Total: {total} quarter-records for {len(summary)} tickers")
+    return summary
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # INGESTA SECTOR ROTATION
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -707,7 +840,8 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["historical", "incremental", "macro", "fred", "fundamentals", "sectors"],
+        choices=["historical", "incremental", "macro", "fred",
+                 "fundamentals", "fundamentals_hist", "sectors"],
         default="incremental",
     )
     parser.add_argument("--period", default=config.INGESTION["DEFAULT_PERIOD"])
@@ -766,6 +900,12 @@ def main():
                      if config.get_asset_type(t) in ("equity", "etf")]
         ingest_fundamentals(db, equities)
 
+    elif args.mode == "fundamentals_hist":
+        equities = [t for t in price_tickers
+                     if config.get_asset_type(t) in ("equity",)]
+        logger.info(f"\n  Ingesting historical quarterly fundamentals for {len(equities)} equities...")
+        ingest_fundamentals_historical(db, equities)
+
     elif args.mode == "sectors":
         ingest_sectors(db, period=args.period)
 
@@ -782,3 +922,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -1,6 +1,151 @@
 # Development Diary — GlobalMarketAnalyzer
 
+## 2026-03-04 — El Matemático: Session Summary
+
+### Multi-Target ML (8 targets)
+Evaluated predictability of 8 different targets using macro features:
+- ✅ Yield curve (AUC 0.654), VIX direction (AUC 0.614), Tail risk (AUC 0.646)
+- ❌ SPY direction (AUC 0.372) — unpredictable with macro features
+- Combined tail risk strategy: Sharpe 1.62, MaxDD -15.0% (vs SPY Sharpe 1.26)
+
+### Graph vs Macro (v1 + v2)
+- Crude eigenvalues improve tail risk AUC by +0.048
+- Full GraphBuilder features improve tail risk by +0.020
+- Crude eigenvalues outperform corrected ones for ML (less noise)
+
+### Market Timing Benchmark (`ml/market_timing.py`)
+- SPY ↔ TLT rotation based on tail risk probability
+- Best result: Sharpe 1.28 (p60 threshold), MaxDD -7.8%
+- BUT: loses to B&H in pure bull (2024-2026): +15.4% vs +20.3%
+- Value is in protection, not alpha generation
+
+### Historical Fundamentals Ingestion
+- Modified `db/data_ingestion.py` with `--mode fundamentals_hist`
+- Ingested **606 quarter-records for 111 tickers** from yfinance
+- Revenue, EPS, margins, ROIC, FCF, debt across 5-7 quarters per ticker
+
+### 🎯 Fundamental Momentum Discovery (`ml/fundamental_momentum.py`)
+**Best result of the session.** 6-component momentum score per stock:
+1. Revenue QoQ growth
+2. EPS growth (total over history)
+3. Operating margin delta
+4. ROIC trend
+5. FCF improvement
+6. Deleveraging
+
+**Quintile results (forward returns):**
+
+| Quintile | Ret 1m | Ret 3m |
+|---|---|---|
+| Q1 (worst) | +5.5% | -6.3% |
+| Q5 (best) | +10.5% | +18.9% |
+| **Spread** | **+5.1%** | **+25.2%** |
+
+Correlations: `eps_growth_total` → 3m return: **r = +0.576** ✅
+
+**Key insight**: This IS the ∂f_i/∂t term from the O-U equation. The forcing
+function f_i(t) was implemented statically; the derivative (momentum) is what
+actually predicts returns. Top momentum stocks: AAPL (+6), CRM (+6), NVDA (+6).
+
+### New Benchmarks
+| Metric | Value | Source |
+|---|---|---|
+| Fundamental momentum spread Q5-Q1 (1m) | +5.1% | fundamental_momentum.py |
+| EPS growth → 3m return correlation | r = 0.576 | fundamental_momentum.py |
+| Tail risk timing Sharpe | 1.28 | market_timing.py |
+
+---
+
+
+## 📊 Benchmarks Actuales (actualizado 2026-03-04)
+
+Referencia rápida — cualquier cambio debe mejorar estos números:
+
+| Categoría | Métrica | Valor | Objetivo |
+|---|---|---|---|
+| **Protección** | MaxDD crisis (gate) | -14.1% | < -10% |
+| **Protección** | Anticipación UKF | 103-151d | Mantener |
+| **ML Tail Risk** | AUC (macro+eigen) | 0.646 | > 0.70 |
+| **ML Yield Curve** | AUC | 0.654 | > 0.70 |
+| **ML VIX** | AUC | 0.614 | > 0.65 |
+| **Estrategia** | Sharpe (tail risk) | 1.62 | > 2.0 |
+| **Estrategia** | MaxDD | -15.0% | < -10% |
+| ❌ **Hit rate MR** | z-scores | ~50% | > 55% (P7 pendiente) |
+| ❌ **Bull returns** | Combo P6 | -8.7% | > 0% (problema central) |
+
+> Ver MATHEMATICS.md Sec 14 para benchmarks detallados.
+
+---
+
 ## 2026-03-04
+
+### Session: El Matemático — Multi-Target ML + Graph vs Macro
+
+**Objetivo**: Expandir más allá de clasificación de régimen. Predecir TODAS las cantidades objetivas posibles y evaluar si el grafo O-U aporta al ML.
+
+#### Scripts creados
+- `ml/regime_model.py` — Régimen clasificación baseline (50.8% acc, 7 iters early stop)
+- `ml/multi_target.py` — 8 targets con LightGBM temporal split (train <2024, test ≥2024)
+- `ml/graph_vs_macro.py` — Macro vs eigenvalues crudos (v1)
+- `ml/graph_vs_macro_v2.py` — Macro vs GraphBuilder completo (72 walk-forward builds, 40d interval)
+
+#### Resultado 1: ¿Qué es predecible?
+
+| Target | AUC/R² | Iters | Top Feature | Veredicto |
+|---|---|---|---|---|
+| **Yield curve** (steepen 20d) | **0.654** | 16 | yield_10y | ✅ Predecible |
+| **VIX dirección** (up 5d) | **0.614** | 24 | yield_spread | ✅ Predecible |
+| **Tail risk** (>5% drawdown 20d) | **0.597** | 17 | yield_spread | ✅ Predecible |
+| Stock-bond correlación | 0.543 | 9 | yield_10y | ⚠️ Débil |
+| Vol 5d / Vol 20d | R²=0.156 / 0.110 | 90/81 | vix | ⚠️ Débil |
+| Credit spread dirección | 0.502 | 6 | vix_20d_chg | ❌ Random |
+| **SPY dirección** (up 20d) | **0.372** | 6 | sp500_ret_60d | ❌ Impredecible |
+
+> **Conclusión**: Lo mecánico (tipos, estrés) es predecible. Lo sentimental (dirección de precio) no.
+
+#### Resultado 2: ¿Aporta la ecuación?
+
+Tres comparaciones: solo macro → + eigenvalues crudos → + GraphBuilder completo.
+
+| Target | Solo Macro | + Eigen crudos | + GraphBuilder |
+|---|---|---|---|
+| Tail risk | 0.597 | **0.646** (+0.048) | 0.617 (+0.020) |
+| SPY dir | 0.372 | 0.438 (+0.066) | 0.401 (+0.029) |
+| Stock-bond | 0.543 | 0.530 | 0.563 (+0.020) |
+| VIX dir | 0.614 | 0.610 | 0.618 |
+| Vol 5d | R²=0.156 | R²=0.142 | R²=0.161 |
+| Yield curve | 0.654 | 0.647 | 0.615 (-0.039) |
+
+> **Hallazgo sorprendente**: eigenvalues crudos > GraphBuilder para ML. Las correcciones dimensionales (FX, tipos, deuda) eliminan señal que el ML podría usar. `graph_top3_ratio` (concentración de eigenvalues) es el feature clave para tail risk.
+
+#### Resultado 3: Estrategia combinada (solo tail risk)
+
+| Métrica | Estrategia | B&H SPY |
+|---|---|---|
+| **Sharpe** | **1.62** | 1.26 |
+| Return anual | +21.7% | +20.3% |
+| Volatilidad | 13.4% | 16.1% |
+| **Max drawdown** | **-15.0%** | -18.8% |
+
+Valor marginal: +1.4% return, -3.8pp drawdown. Mejor pero no espectacular.
+
+#### Análisis crítico: Limitaciones del grafo
+
+5 cosas que el grafo NO puede captar:
+1. **Asimetría** — bancos suben/bajan asimétrico con tipos
+2. **Eventos** — ve correlaciones post-facto, no anuncios
+3. **Condicionalidad** — "oil → XLE, PERO SOLO si USD estable"
+4. **Magnitud** — 25bp ≠ 75bp
+5. **No-linealidad** — VIX 15→20 ≠ VIX 25→30
+
+#### Diagnóstico confirmado por ML
+
+El ML confirma desde otro ángulo lo que sabíamos desde P4:
+- **El equilibrio del z-score se mueve** → hit rate ~50%
+- **P7 (reversibilidad) sigue siendo el problema central sin resolver**
+- La ecuación aporta valor para **detección de peligro**, no para dirección de precios
+
+---
 
 ### Session: Project Status Assessment — Lo que funciona y lo que bloquea
 
