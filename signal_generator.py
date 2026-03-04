@@ -23,6 +23,7 @@ from core.fundamental_filter import FundamentalFilter
 from core.graph_builder import GraphBuilder
 from core.heat_engine import HeatEngine
 from core.inertia_detector import InertiaDetector
+from core.reversibility import ReversibilityFilter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,6 +56,7 @@ class SignalGenerator:
         self.gb = GraphBuilder(self.db)
         self.engine: HeatEngine = None
         self.detector: InertiaDetector = None
+        self.rev_filter: ReversibilityFilter = ReversibilityFilter()  # P7
 
         self.signals: list[dict] = []
         self.diagnostics: dict = {}
@@ -101,11 +103,15 @@ class SignalGenerator:
         logger.info(f"  Modos con reversión: {n_reversals}")
         logger.info(f"  Modos con anomalía: {n_anomalies}")
 
-        # ── 5. Generar señales ──
-        logger.info("[5/6] Generando señales...")
+        # ── 5. P7: Reversibility filter ──
+        logger.info("[5/7] Filtro de reversibilidad P7...")
+        self.rev_filter.update(self.gb.eigenvectors, self.gb.eigenvalues)
+
+        # ── 6. Generar señales ──
+        logger.info("[6/7] Generando señales...")
         self.signals = self._generate_signals(ref)
 
-        # ── 6. No-localidad ──
+        # ── 7. No-localidad ──
         nl = self.gb.nonlocality_ratio(self.engine.alpha)
         logger.info(f"  NL ratio = {nl:.4f}")
 
@@ -188,6 +194,13 @@ class SignalGenerator:
         logger.info(f"  P5 execution_mode: {execution_mode} "
                     f"(s={s:.3f}, ds/dt={ds_dt:+.4f}, refuge={refuge_sig:.2f})")
 
+        # P7: If graph is in global transition, escalate to defensive
+        if self.rev_filter.is_ready and not self.rev_filter.is_graph_stable:
+            if execution_mode == "alpha":
+                execution_mode = "defensive"
+                logger.info(f"  P7: Graph in transition (ΔS={self.rev_filter.delta_entropy:+.4f}) "
+                            f"→ escalated to DEFENSIVE")
+
         for i, ticker in enumerate(self.gb.tickers):
             score = asset_scores.get(ticker, 0.0)
             z = float(z_real[-1, i]) if len(z_real) > 0 else 0.0
@@ -235,8 +248,19 @@ class SignalGenerator:
             asset_cold = z < -1.0
             asset_hot = z > 1.0
 
+            # P7: Reversibility check — skip assets with rotated modes
+            rev_tradeable = True
+            asset_rev_overlap = 1.0
+            if self.rev_filter.is_ready:
+                asset_rev_overlap = self.rev_filter.asset_overlap(i)
+                rev_tradeable = self.rev_filter.should_trade(i)
+
             # Determine signal
-            if composite < BUY_THRESHOLD and p_rev > PROB_MIN and F >= -0.05:
+            if not rev_tradeable:
+                # P7: Mode rotated → structural change, z-score unreliable
+                signal = "HOLD"
+                confidence = round((1 - p_rev) * 50, 1)
+            elif composite < BUY_THRESHOLD and p_rev > PROB_MIN and F >= -0.05:
                 if asset_cold and trend_up:
                     signal = "BUY"
                     confidence = round(p_rev * 120, 1)
@@ -290,6 +314,8 @@ class SignalGenerator:
                 "p_reversion":        p_rev,
                 "expected_return_5d": exp_ret,
                 "half_life_days":     half_life,
+                "rev_overlap":        round(asset_rev_overlap, 3),  # P7
+                "rev_tradeable":      rev_tradeable,                # P7
                 "rationale":          self._build_rationale(
                     ticker, composite, z, F, classification, p_rev, half_life
                 ),

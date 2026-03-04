@@ -118,6 +118,8 @@ class GraphBuilder:
         self.L: np.ndarray = np.array([])             # Laplaciano (N, N)
         self.eigenvalues: np.ndarray = np.array([])   # (N,)
         self.eigenvectors: np.ndarray = np.array([])  # (N, N)
+        self.eigenvalues_prev: np.ndarray = None      # P7: previous eigenstate
+        self.eigenvectors_prev: np.ndarray = None     # P7: for modal overlap
         self.s: float = S_BASE
         self.s_prev: float = S_BASE        # P5: previous s for ds/dt
         self.ds_dt: float = 0.0            # P5: rate of change of s
@@ -521,6 +523,11 @@ class GraphBuilder:
         self.L = D - self.W
 
         # ─── Eigendecomposition ───
+        # P7: Save previous eigenstate for reversibility filter
+        if self.eigenvalues.size > 0:
+            self.eigenvalues_prev = self.eigenvalues.copy()
+            self.eigenvectors_prev = self.eigenvectors.copy()
+
         eigenvalues, eigenvectors = np.linalg.eigh(self.L)
         eigenvalues = np.maximum(eigenvalues, 0.0)
         idx = np.argsort(eigenvalues)
