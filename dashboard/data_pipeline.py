@@ -640,6 +640,112 @@ class DashboardPipeline:
                     'methodology': 'Se verifica si VIX>25 durante 5d consecutivos Y >22 durante 20d.',
                 })
 
+        # ── 7. CAPE Ratio (Shiller PE) ──
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            r = requests.get('https://www.multpl.com/shiller-pe',
+                             headers={'User-Agent': 'Mozilla/5.0'}, timeout=8)
+            soup = BeautifulSoup(r.text, 'html.parser')
+            cape_el = soup.select_one('#current')
+            if cape_el:
+                cape_text = cape_el.get_text(strip=True)
+                # Extract numeric value
+                import re
+                cape_match = re.search(r'([\d.]+)', cape_text)
+                if cape_match:
+                    cape = float(cape_match.group(1))
+                    hist_mean = 17.3
+                    # Historical: mean 17.3, dot-com peak 44.2, 2007 peak 27.5
+                    if cape > 35:
+                        alerts.append({
+                            'id': 'cape_ratio',
+                            'severity': 'alert',
+                            'title': f'🔴 CAPE Shiller: {cape:.1f} (media histórica: 17.3)',
+                            'detail': f'El mercado cotiza a {cape/hist_mean:.1f}x su valoración media. '
+                                      f'Solo se ha visto algo similar antes del crash de las .com (44.2) '
+                                      f'y en 2021 (38.6).',
+                            'implication': 'Territorio de burbuja. El momentum funciona, pero el riesgo de '
+                                           'corrección del 30-40% es históricamente alto. '
+                                           'Considerar reducir exposición a equity y aumentar cash.',
+                            'methodology': f'CAPE = Precio S&P500 / Media de beneficios reales de 10 años. '
+                                           f'Fuente: multpl.com. Media histórica (1871-2024): 17.3. '
+                                           f'Alerta si >35, warning si >25.',
+                        })
+                    elif cape > 25:
+                        alerts.append({
+                            'id': 'cape_ratio',
+                            'severity': 'warning',
+                            'title': f'🟡 CAPE Shiller elevado: {cape:.1f}',
+                            'detail': f'El mercado cotiza a {cape/hist_mean:.1f}x su valoración media. '
+                                      f'Caro pero no en extremo histórico.',
+                            'implication': 'Los retornos esperados a 10 años son menores que la media. '
+                                           'El momentum sigue funcionando pero con un "techo" más bajo.',
+                            'methodology': f'CAPE = P/E ajustado por ciclo (10 años). Media: 17.3.',
+                        })
+                    else:
+                        alerts.append({
+                            'id': 'cape_ratio',
+                            'severity': 'ok',
+                            'title': f'🟢 CAPE Shiller normal: {cape:.1f}',
+                            'detail': f'Mercado en valoración razonable ({cape/hist_mean:.1f}x media).',
+                            'implication': 'Buen momento para equity. Valoraciones no son obstáculo.',
+                            'methodology': 'CAPE < 25 = rango normal-bajo.',
+                        })
+        except Exception:
+            pass
+
+        # ── 8. Buffett Indicator (Market Cap / GDP) ──
+        try:
+            r2 = requests.get('https://www.currentmarketvaluation.com/models/buffett-indicator.php',
+                              headers={'User-Agent': 'Mozilla/5.0'}, timeout=8)
+            soup2 = BeautifulSoup(r2.text, 'html.parser')
+            # Find percentage value
+            buffett_val = None
+            for t in soup2.find_all(string=lambda x: x and '%' in str(x)):
+                txt = t.strip()
+                match = re.search(r'(\d+)%', txt)
+                if match and 50 < int(match.group(1)) < 500:
+                    buffett_val = int(match.group(1))
+                    break
+
+            if buffett_val:
+                if buffett_val > 200:
+                    alerts.append({
+                        'id': 'buffett_indicator',
+                        'severity': 'alert',
+                        'title': f'🔴 Indicador Buffett: {buffett_val}% (bolsa vs PIB)',
+                        'detail': f'El valor de la bolsa es {buffett_val/100:.1f}x el PIB. '
+                                  f'Media histórica: ~100%. Máximo anterior: ~200% (2021).',
+                        'implication': 'El mercado se ha DESCONECTADO de la economía real. '
+                                       'Esto no es sostenible a largo plazo. '
+                                       'Tu momentum puede seguir funcionando meses, '
+                                       'pero el riesgo sistémico de corrección es muy alto.',
+                        'methodology': f'Capitalización total del mercado / PIB de EE.UU. '
+                                       f'Fuente: currentmarketvaluation.com. '
+                                       f'Media: ~100%. Alerta si >200%, warning si >150%.',
+                    })
+                elif buffett_val > 150:
+                    alerts.append({
+                        'id': 'buffett_indicator',
+                        'severity': 'warning',
+                        'title': f'🟡 Indicador Buffett elevado: {buffett_val}%',
+                        'detail': f'El mercado vale {buffett_val/100:.1f}x el PIB. Caro pero no extremo.',
+                        'implication': 'Valoración alta. Retornos a largo plazo probablemente menores.',
+                        'methodology': 'Market Cap / GDP. Warning si >150%.',
+                    })
+                else:
+                    alerts.append({
+                        'id': 'buffett_indicator',
+                        'severity': 'ok',
+                        'title': f'🟢 Indicador Buffett normal: {buffett_val}%',
+                        'detail': f'Mercado alineado con la economía ({buffett_val/100:.1f}x PIB).',
+                        'implication': 'Valoración razonable a nivel macro.',
+                        'methodology': 'Market Cap / GDP < 150%.',
+                    })
+        except Exception:
+            pass
+
         # Summary
         n_alerts = sum(1 for a in alerts if a['severity'] == 'alert')
         n_warnings = sum(1 for a in alerts if a['severity'] == 'warning')
