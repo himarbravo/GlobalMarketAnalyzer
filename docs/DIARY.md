@@ -1,5 +1,57 @@
 # Development Diary — GlobalMarketAnalyzer
 
+## 2026-03-05 — Conclusiones Críticas: Z-Scores y Alpha
+
+### ∂f_i/∂t integrado en la ecuación O-U
+Modificamos `heat_engine.py` para incluir el momentum fundamental como forcing:
+- `_compute_momentum_forcing()`: carga datos trimestrales, normaliza momentum_pct
+- `_compute_dynamic_f()`: `f_i = f_static + ∂f_i/∂t`
+- `_compute_z_scores()`: genera `z_scores_adjusted` (desplazados por momentum)
+- AAPL: z pasa de +0.093 → -0.019 (momentum positivo → parece más barata)
+- JD: z pasa de +0.238 → +0.320 (momentum negativo → parece más cara)
+
+### 🚨 Z-Scores NO predicen dirección
+
+Backtest exhaustivo: 23,761 señales, 145 tickers, umbrales de ±0.3 a ±2.0:
+
+| Umbral | z_raw hit | z_adj hit | Señales |
+|---|---|---|---|
+| ±0.3 | 50.3% | 50.3% | 43,797 |
+| ±0.5 | 50.4% | 50.4% | 37,120 |
+| ±1.0 | 50.7% | 50.7% | 23,761 |
+| ±1.5 | 51.1% | 51.0% | 14,005 |
+| ±2.0 | 51.1% | 51.2% | 7,656 |
+
+**Mean reversion en acciones individuales no funciona a 20 días.**
+El momentum forcing mejora la *descripción* del estado del activo pero no la *predicción* de dirección.
+
+### Lo que SÍ funciona como alpha
+
+| Señal | Cómo | Resultado |
+|---|---|---|
+| **Momentum ranking** | Comprar TOP 5 por ∂f_i/∂t | +32.1%, Sharpe 1.65 |
+| **Tail risk timing** | Salir cuando P(tail) alto | Sharpe 1.28, MaxDD -7.8% |
+| **EPS growth correlation** | Stock-picking por EPS trend | r = 0.576 a 3 meses |
+
+### Revisión del modelo: qué sirve para qué
+
+```
+Ecuación O-U:  γ·m'' + m' = -α·L^s·m + f_i(t) + Ω_i(t) + v(t)
+
+Componente         Sirve para                          NO sirve para
+─────────────      ────────────────────────            ──────────────────
+L^s (grafo)        Detectar contagio, tail risk AUC    Predecir precio stock
+f_i(t) static      Clasificar activos (value/spec)    Stock picking
+∂f_i/∂t            RANKING de stocks (pragmático)      Ajustar z-scores
+z-scores           Describir estado actual             Predecir dirección
+v(t) macro         Tail risk, timing de mercado        Dirección de stocks
+```
+
+### Bug corregido
+`signal_generator.py`: `asset_rev_overlap` → `asset_sector_c` (NameError P7)
+
+---
+
 ## 2026-03-04 — El Matemático: Session Summary
 
 ### Multi-Target ML (8 targets)
