@@ -128,35 +128,43 @@ def _section_system(data):
 
 
 def _section_stocks(data):
-    """Generate TOP 20 momentum stocks section."""
+    """Generate sector-grouped momentum stocks section."""
     import pandas as pd
-    lines = ["═══ MI CARTERA: TOP 20 MOMENTUM ═══"]
+    from collections import defaultdict
+
+    lines = ["═══ MI CARTERA: TOP 5 POR SECTOR (sector-neutral) ═══"]
     stocks = data.get('stocks', [])
     sa = data.get('system_analytics', {})
+    z_scores = sa.get('z_scores', {})
 
-    for i, s in enumerate(stocks):
-        line = f"  {i+1}. {s['ticker']} (score:{s.get('score',0):.0f}/5"
-        if 'rev_qoq' in s:
-            line += f", rev:{s['rev_qoq']:+.0%}"
-        if 'eps_growth' in s and pd.notna(s['eps_growth']):
-            line += f", EPS:{s['eps_growth']:+.0%}"
-        line += ")"
+    # Group by sector
+    by_sector = defaultdict(list)
+    for s in stocks:
+        by_sector[s.get('sector', 'Unknown')].append(s)
 
-        if 'price' in s:
-            line += f" → ${s['price']:.1f}"
-        if 'chg_20d' in s:
-            line += f", 20d:{s['chg_20d']:+.1%}"
-        if 'from_high' in s:
-            line += f", vs_max:{s['from_high']:+.1%}"
-        if 'vol_20d' in s:
-            line += f", vol:{s['vol_20d']:.0f}%"
+    for sector in sorted(by_sector.keys()):
+        sector_stocks = by_sector[sector]
+        lines.append(f"\n── {sector} ({len(sector_stocks)}) ──")
 
-        # Add z-score from system analytics
-        z_scores = sa.get('z_scores', {})
-        if s['ticker'] in z_scores:
-            line += f", z={z_scores[s['ticker']]:+.2f}"
+        for i, s in enumerate(sector_stocks[:5]):
+            line = f"  {i+1}. {s['ticker']} (score:{s.get('score',0):.0f}/5"
+            if 'rev_qoq' in s and s['rev_qoq']:
+                line += f", rev:{s['rev_qoq']:+.0%}"
+            if 'eps_growth' in s and s['eps_growth'] is not None and pd.notna(s['eps_growth']):
+                line += f", EPS:{s['eps_growth']:+.0%}"
+            line += ")"
 
-        lines.append(line)
+            if 'price' in s:
+                line += f" → ${s['price']:.1f}"
+            if 'chg_20d' in s and s['chg_20d'] is not None:
+                line += f", 20d:{s['chg_20d']:+.1%}"
+            if 'vol_20d' in s and s['vol_20d'] is not None:
+                line += f", vol:{s['vol_20d']:.0f}%"
+
+            if s['ticker'] in z_scores:
+                line += f", z={z_scores[s['ticker']]:+.2f}"
+
+            lines.append(line)
 
     return '\n'.join(lines)
 
