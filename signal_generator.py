@@ -325,7 +325,7 @@ class SignalGenerator:
                 "p_reversion":        p_rev,
                 "expected_return_5d": exp_ret,
                 "half_life_days":     half_life,
-                "rev_overlap":        round(asset_rev_overlap, 3),  # P7
+                "rev_overlap":        round(asset_sector_c, 3),     # P7
                 "rev_tradeable":      rev_tradeable,                # P7
                 "rationale":          self._build_rationale(
                     ticker, composite, z, F, classification, p_rev, half_life
