@@ -70,6 +70,9 @@ class HeatEngine:
         self.alpha_per_mode: np.ndarray = np.array([])  # (N,) α_k
         self.sigma_residual: np.ndarray = np.array([])  # (N,) σ por activo
 
+        # Fundamental momentum: ∂f_i/∂t
+        self.momentum_forcing: np.ndarray = np.array([])  # (N,) momentum per asset
+
         # Advección: velocidad macro y flujos de capital
         self.macro_velocity: np.ndarray = np.array([])  # (T, N) v(t)
         self.capital_flow: np.ndarray = np.array([])     # (T,) net capital in system
@@ -222,12 +225,60 @@ class HeatEngine:
 
         self.gamma = best_gamma
 
+    def _compute_momentum_forcing(self):
+        """
+        Computes ∂f_i/∂t — the fundamental momentum forcing term.
+
+        Uses quarterly data from Supabase to compute a momentum score per ticker.
+        This captures the CHANGE in fundamentals (revenue acceleration, margin
+        improvement, EPS trend) which predicts forward returns.
+
+        Returns: np.ndarray of shape (N,) with normalized momentum forcing.
+        """
+        MOMENTUM_SCALE = 0.05  # scale factor: how much momentum shifts equilibrium
+
+        momentum = np.zeros(self.N)
+
+        try:
+            from ml.fundamental_momentum import load_quarterly_data, compute_momentum_features
+            qdf, _ = load_quarterly_data()
+            mom = compute_momentum_features(qdf)
+
+            if mom.empty:
+                self.momentum_forcing = momentum
+                return momentum
+
+            # Map momentum scores to ticker indices
+            mom_dict = dict(zip(mom['ticker'], mom['momentum_pct']))
+
+            for i, ticker in enumerate(self.tickers):
+                if ticker in mom_dict:
+                    momentum[i] = mom_dict[ticker]  # ∈ [-1, +1]
+
+            # Normalize: mean-zero so it's a relative signal
+            if np.std(momentum) > 1e-8:
+                momentum = (momentum - np.mean(momentum)) / np.std(momentum)
+
+            momentum *= MOMENTUM_SCALE
+
+            n_with_data = np.sum(np.abs(momentum) > 1e-6)
+            print(f"    ∂f/∂t: {n_with_data}/{self.N} tickers with momentum data")
+
+        except Exception as e:
+            print(f"    ⚠ Momentum forcing not available: {e}")
+
+        self.momentum_forcing = momentum
+        return momentum
+
     def _compute_dynamic_f(self):
         """
         Calcula f dinámico por rol de nodo.
 
+        f_i = f_static(role, S(t)) + ∂f_i/∂t (momentum fundamental)
+
         bank:       f = yield_spread × lending_weight (crean dinero)
         productive: f = (dK/dt + crédito_in - intereses_out) × S(t)
+        momentum:   f += SCALE × momentum_score (∂f_i/∂t)
         """
         f = np.zeros(self.N)
 
@@ -272,6 +323,13 @@ class HeatEngine:
                 credit_in = W_dir[:, i].sum()   # préstamos recibidos de bancos
                 interest_out = W_dir[i, :].sum()  # intereses pagados a bancos
                 f[i] = (dk_dt + credit_in - interest_out) * sentiment[i]
+
+        # === ADD MOMENTUM FORCING: ∂f_i/∂t ===
+        # This shifts the equilibrium for companies with improving fundamentals:
+        # - Positive momentum → higher equilibrium → z-score decreases (less "overvalued")
+        # - Negative momentum → lower equilibrium → z-score increases (more "overvalued")
+        momentum = self._compute_momentum_forcing()
+        f += momentum
 
         return np.nan_to_num(f, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -871,6 +929,17 @@ class HeatEngine:
             sigma = sigma.replace(0, np.nan).fillna(eps_series.std())
             self.z_scores[:, i] = (eps_series / sigma).fillna(0).values
 
+        # If momentum forcing is available, also compute adjusted z-scores
+        # z_adj = z - momentum_shift: companies with positive momentum
+        # get a lower z-score (they SHOULD be higher than equilibrium)
+        if hasattr(self, 'momentum_forcing') and len(self.momentum_forcing) == N:
+            # Scale momentum to z-score units (~1σ effect for max momentum)
+            MOMENTUM_Z_SCALE = 1.0
+            z_adjustment = self.momentum_forcing * MOMENTUM_Z_SCALE
+            self.z_scores_adjusted = self.z_scores - z_adjustment[np.newaxis, :]
+        else:
+            self.z_scores_adjusted = self.z_scores.copy()
+
     def compute_probability(self, ticker_idx: int, horizon: int = None) -> dict:
         """
         Probabilidad analítica O-U de que el activo i revierta.
@@ -953,6 +1022,17 @@ class HeatEngine:
         T_len = min(len(dates), len(self.z_scores))
         return pd.DataFrame(
             self.z_scores[:T_len],
+            index=dates[:T_len],
+            columns=self.tickers
+        )
+
+    def get_z_scores_adjusted_df(self) -> pd.DataFrame:
+        """Z-scores ajustados por momentum fundamental como DataFrame."""
+        dates = self.gb.returns.index
+        z = self.z_scores_adjusted if hasattr(self, 'z_scores_adjusted') else self.z_scores
+        T_len = min(len(dates), len(z))
+        return pd.DataFrame(
+            z[:T_len],
             index=dates[:T_len],
             columns=self.tickers
         )
