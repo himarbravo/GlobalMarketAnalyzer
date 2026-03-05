@@ -15,21 +15,23 @@ from strategy.glossary import CRISIS_TYPES
 
 # ── SYSTEM DESCRIPTION ──
 SYSTEM_CONTEXT = """Eres un analista de mercados experto y consejero de inversión.
-Estoy usando un sistema cuantitativo propio basado en un modelo
-Ornstein-Uhlenbeck (O-U) sobre un grafo fraccional L^s que modela
-la dinámica multi-activo con inercia.
+Estoy usando un sistema cuantitativo propio que combina:
 
-El sistema calcula:
-- Z-scores O-U: desviación de cada activo vs su equilibrio teórico
-- Señal de refugio: basada en flujos de capital macro
-- Exponente fraccional (s): eficiencia de mercado
-- Inercia (γ): fuerza de las tendencias
-- Entropía Von Neumann: contagio sistémico vs diversificación
-- Momentum scores: ranking fundamental trimestral
+1. **Momentum fundamental sector-neutral**: ranking trimestral por sector GICS
+   (revenue QoQ, EPS growth, ROIC trend). Top 5 acciones por sector.
+2. **Macro y curva de tipos**: yields reales, spread 10Y-2Y/3M, datos FRED
+   (IPC, desempleo, PMI, HY spread, petróleo, oro, cobre).
+3. **Valoración macro**: CAPE Shiller y Indicador Buffett como alertas.
+4. **Sentimiento**: Fear & Greed Index + flujos ETF (SPY/QQQ/TLT/GLD/IWM).
+5. **Titulares recientes**: headlines de mercado para contexto cualitativo.
+6. **Clasificación de régimen**: basada en VIX, spreads y pendiente de curva.
 
 Necesito tu CRITERIO HUMANO — no reglas mecánicas.
 Quiero que interpretes estos datos como lo haría un gestor experimentado
-que entiende las sutilezas que un modelo cuantitativo no captura."""
+que entiende las sutilezas que un modelo cuantitativo no captura.
+
+IMPORTANTE: Mi cartera está diversificada por sector (top 5 por cada sector GICS).
+Analiza riesgos y oportunidades tanto a nivel individual como sectorial."""
 
 
 def _section_market(data):
@@ -77,52 +79,37 @@ def _section_fred(data):
 
 
 def _section_system(data):
-    """Generate system analytics section."""
-    lines = ["═══ ANÁLISIS DEL SISTEMA O-U ═══"]
+    """Generate O-U system analytics section (if available)."""
     sa = data.get('system_analytics', {})
+    if not sa or 'z_scores' not in sa:
+        return ""  # O-U system disabled or empty, skip section
 
-    # Diagnosis
-    if 'crisis_type' in sa:
-        lines.append(f"Diagnóstico automático: {sa['crisis_type']}")
-        lines.append("")
+    lines = ["═══ ANÁLISIS DEL SISTEMA O-U (experimental) ═══"]
+    lines.append("NOTA: Estos datos son experimentales, interpretar con cautela.")
+    lines.append("")
+
+    # Z-scores
+    zs = sa.get('z_scores', {})
+    if zs:
+        sorted_z = sorted(zs.items(), key=lambda x: x[1])
+        lines.append("Z-scores (desviación vs equilibrio teórico):")
+        lines.append("  Más infravalorados:")
+        for tk, z in sorted_z[:5]:
+            lines.append(f"    {tk}: z={z:+.3f}")
+        lines.append("  Más sobrevalorados:")
+        for tk, z in sorted_z[-5:]:
+            lines.append(f"    {tk}: z={z:+.3f}")
 
     # Refuge signal
     if 'refuge_signal' in sa:
         rs = sa['refuge_signal']
-        lines.append(f"Señal de refugio: {rs:+.2f} (rango -1 a +1)")
-        lines.append("  >0.5 = salir de equity, <-0.5 = entrar, ~0 = neutral")
-        lines.append("")
-
-    # Z-scores (top 10 most extreme)
-    if 'z_scores' in sa:
-        lines.append("Z-Scores O-U (los más extremos):")
-        sorted_z = sorted(sa['z_scores'].items(), key=lambda x: abs(x[1]), reverse=True)
-        for t, z in sorted_z[:10]:
-            label = 'sobrecomprado' if z > 0 else 'sobrevendido'
-            lines.append(f"  {t}: z={z:+.2f} ({label})")
-        lines.append("  |z|>2 = probabilidad alta de reversión")
-        lines.append("")
+        lines.append(f"Señal de refugio: {rs:+.3f} (negativo=equity, positivo=refugio)")
 
     # Calibrated params
     if 's' in sa:
         lines.append(f"Exponente fraccional (s): {sa['s']:.3f}")
-        lines.append("  s≈0.5=eficiente, s→1=difusión lenta (estrés)")
     if 'gamma' in sa:
         lines.append(f"Inercia (γ): {sa['gamma']:.1f}")
-        lines.append("  γ=1=sin inercia, γ>5=tendencias fuertes")
-    if 'entropy' in sa:
-        lines.append(f"Entropía Von Neumann: {sa['entropy']:.3f}")
-        lines.append("  <0.3=contagio sistémico, >0.7=mercado sano")
-    lines.append("")
-
-    # Reversion probabilities
-    probs = {k: v for k, v in sa.items() if k.startswith('prob_')}
-    if probs:
-        lines.append("Probabilidades O-U de reversión (5d):")
-        for k, p in probs.items():
-            t = k.replace('prob_', '')
-            lines.append(f"  {t}: P(revert)={p.get('p_revert',0):.0%}, "
-                        f"E[ret]={p.get('expected_return',0):+.1%}")
 
     return '\n'.join(lines)
 
