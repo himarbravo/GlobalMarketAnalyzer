@@ -177,6 +177,30 @@ class DashboardPipeline:
             pass
         return macro
 
+    def fetch_headlines(self, n=10):
+        """Fetch latest market headlines from Google News RSS."""
+        headlines = []
+        try:
+            import feedparser
+            feed = feedparser.parse(
+                'https://news.google.com/rss/search?q=stock+market+S%26P+500+Fed+economy&hl=en-US&gl=US&ceid=US:en'
+            )
+            for entry in feed.entries[:n]:
+                title = entry.title
+                source = ''
+                if ' - ' in title:
+                    parts = title.rsplit(' - ', 1)
+                    title = parts[0].strip()
+                    source = parts[1].strip()
+                headlines.append({
+                    'title': title,
+                    'source': source,
+                    'date': entry.get('published', '')[:16],
+                })
+        except Exception:
+            pass
+        return headlines
+
     def fetch_momentum_ranking(self):
         """Fetch momentum stocks with sector classification.
         Returns (stocks_flat, sectors_grouped):
@@ -823,6 +847,9 @@ class DashboardPipeline:
         print("  → FRED macro...", flush=True)
         fred = self.fetch_fred()
 
+        print("  → Headlines...", flush=True)
+        headlines = self.fetch_headlines()
+
         print("  → Regime classification...", flush=True)
         regime = self.classify_regime(market)
 
@@ -842,6 +869,7 @@ class DashboardPipeline:
             'market': market,
             'yields': yields,
             'fred': fred,
+            'headlines': headlines,
             'regime': regime,
             'health': health,
             'stocks': stocks,

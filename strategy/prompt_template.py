@@ -176,14 +176,30 @@ def _section_questions():
 2. Dado los yields, la curva, y la inflación: ¿TLT es buen refugio HOY
    o debería usar GLD, cash, o mantenerme en equity?
 3. ¿Qué precedente histórico se parece más a la combinación actual de señales?
-4. De mi TOP 20, ¿alguna empresa es especialmente VULNERABLE al régimen actual?
+4. De mi cartera, ¿alguna empresa es especialmente VULNERABLE al régimen actual?
    (dependencia de China, deuda alta, márgenes en riesgo, etc.)
 5. Los z-scores muestran activos sobre/infravalorados según mi modelo O-U.
    ¿Son oportunidades reales o trampas de valor?
 6. ¿Cuál es el escenario MÁS PELIGROSO que podría ocurrir esta semana?
-7. Si tuvieras que elegir SOLO 5 acciones de mi TOP 20 para las próximas
+7. Si tuvieras que elegir SOLO 5 acciones de mi cartera para las próximas
    4 semanas, ¿cuáles elegirías y por qué?
-8. ¿Hay algún indicador que contradiga al resto? ¿Dónde está la señal más débil?"""
+8. ¿Hay algún indicador que contradiga al resto? ¿Dónde está la señal más débil?
+9. ¿Hay algún riesgo GEOPOLÍTICO actual (conflictos armados, sanciones,
+   rutas comerciales, embargo, tensiones entre potencias) que pueda impactar
+   mi cartera y que mis datos cuantitativos NO capturen?
+10. ¿Qué sectores de mi cartera son más vulnerables a los titulares recientes?"""
+
+
+def _section_headlines(data):
+    """Generate recent market headlines section."""
+    headlines = data.get('headlines', [])
+    if not headlines:
+        return ""
+    lines = ["═══ TITULARES RECIENTES ═══"]
+    for h in headlines[:10]:
+        src = f" ({h['source']})" if h.get('source') else ""
+        lines.append(f"  • [{h.get('date', '')}] {h['title']}{src}")
+    return '\n'.join(lines)
 
 
 def build_prompt(snapshot, sections=None):
@@ -192,17 +208,17 @@ def build_prompt(snapshot, sections=None):
 
     Args:
         snapshot: dict with keys 'market', 'yields', 'fred',
-                  'system_analytics', 'stocks'
+                  'headlines', 'system_analytics', 'stocks'
         sections: list of sections to include, or None for all.
                   Options: 'context', 'market', 'yields', 'fred',
-                  'system', 'stocks', 'questions'
+                  'headlines', 'system', 'stocks', 'questions'
 
     Returns:
         str: complete prompt ready to paste into Gemini
     """
     if sections is None:
         sections = ['context', 'market', 'yields', 'fred',
-                    'system', 'stocks', 'questions']
+                    'headlines', 'system', 'stocks', 'questions']
 
     parts = []
 
@@ -217,6 +233,11 @@ def build_prompt(snapshot, sections=None):
 
     if 'fred' in sections:
         parts.append(_section_fred(snapshot))
+
+    if 'headlines' in sections:
+        hl = _section_headlines(snapshot)
+        if hl:
+            parts.append(hl)
 
     if 'system' in sections:
         parts.append(_section_system(snapshot))
