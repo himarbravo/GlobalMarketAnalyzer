@@ -319,6 +319,261 @@ class DashboardPipeline:
 
         return regime
 
+    def compute_model_health(self, market):
+        """Compute model stability witnesses — overfitting/regime change alerts."""
+        alerts = []
+        vix_data = market.get('^VIX', {})
+        vix_hist = vix_data.get('history', [])
+        vix_now = vix_data.get('price', 0)
+        spy_data = market.get('SPY', {})
+        tlt_data = market.get('TLT', {})
+        gld_data = market.get('GLD', {})
+
+        # ── 1. VIX Distribution Shift ──
+        # Historical VIX: mean ~19, std ~7. If 6M avg is far from this, regime changed.
+        if len(vix_hist) >= 40:
+            vix_mean_recent = np.mean(vix_hist[-40:])  # ~2 months of data available
+            vix_std_recent = np.std(vix_hist[-40:])
+            hist_mean, hist_std = 19.0, 7.0
+
+            z_shift = abs(vix_mean_recent - hist_mean) / hist_std
+            if z_shift > 2.0:
+                alerts.append({
+                    'id': 'vix_distribution',
+                    'severity': 'alert',
+                    'title': '🔴 VIX fuera de rango histórico',
+                    'detail': f'Media VIX reciente: {vix_mean_recent:.1f} (histórica: ~19). '
+                              f'Desviación: {z_shift:.1f}σ. Nuestros umbrales se calibraron en media ~19.',
+                    'implication': 'Los umbrales VIX<15/20/30 pueden NO ser válidos en este régimen. '
+                                   'Un VIX con media ~28 haría que umbral=20 esté siempre activo → overfitting.',
+                    'methodology': 'Se compara la media del VIX de los últimos 40 días con la media '
+                                   'histórica (19). Alerta si |diferencia| > 2 × std histórica (7).',
+                })
+            elif z_shift > 1.0:
+                alerts.append({
+                    'id': 'vix_distribution',
+                    'severity': 'warning',
+                    'title': '🟡 VIX algo elevado sobre rango habitual',
+                    'detail': f'Media VIX reciente: {vix_mean_recent:.1f} vs histórica ~19. '
+                              f'Desviación: {z_shift:.1f}σ. Dentro de lo tolerable pero vigilar.',
+                    'implication': 'Los umbrales aún son válidos pero estamos en la zona límite.',
+                    'methodology': 'Media VIX 40d vs media histórica (19). Warning si >1σ, alerta si >2σ.',
+                })
+            else:
+                alerts.append({
+                    'id': 'vix_distribution',
+                    'severity': 'ok',
+                    'title': '🟢 Distribución VIX dentro de rango',
+                    'detail': f'Media VIX reciente: {vix_mean_recent:.1f} ({z_shift:.1f}σ de la media histórica). Normal.',
+                    'implication': 'Los umbrales calibrados en backtest siguen siendo válidos.',
+                    'methodology': 'Media VIX 40d vs media histórica (19±7).',
+                })
+
+        # ── 2. VIX Gate Frequency ──
+        # In backtest, VIX>MA20 triggers ~37% of the time. If very different, model breaks.
+        if len(vix_hist) >= 20:
+            ma20_vals = [np.mean(vix_hist[max(0,i-19):i+1]) for i in range(19, len(vix_hist))]
+            vix_subset = vix_hist[19:]
+            gate_active = sum(1 for v, m in zip(vix_subset, ma20_vals) if v > m)
+            freq = gate_active / len(vix_subset) if vix_subset else 0
+            expected = 0.37
+
+            if abs(freq - expected) > 0.20:
+                alerts.append({
+                    'id': 'gate_frequency',
+                    'severity': 'alert',
+                    'title': f'🔴 Gate VIX>MA20 frecuencia anómala: {freq*100:.0f}%',
+                    'detail': f'El gate se activa {freq*100:.0f}% del tiempo vs {expected*100:.0f}% esperado en backtest. '
+                              f'Diferencia: {abs(freq-expected)*100:.0f} puntos.',
+                    'implication': f'{"El gate NUNCA se apaga → refugio permanente = sin alpha." if freq > 0.57 else "El gate NUNCA se activa → sin protección cuando venga la crisis."}',
+                    'methodology': f'Se cuentan los días con VIX>MA20 en los últimos {len(vix_subset)} días. '
+                                   'Backtest 2004-2026 dio ~37%. Alerta si difiere >20pp.',
+                })
+            else:
+                alerts.append({
+                    'id': 'gate_frequency',
+                    'severity': 'ok',
+                    'title': f'🟢 Frecuencia gate VIX>MA20: {freq*100:.0f}% (esperado ~37%)',
+                    'detail': 'La frecuencia de activación del gate es coherente con el backtest.',
+                    'implication': 'El modelo opera en un régimen similar al de entrenamiento.',
+                    'methodology': f'Calculado sobre {len(vix_subset)} días disponibles.',
+                })
+
+        # ── 3. SPY-TLT Correlation ──
+        # Our strategy ASSUMES negative correlation. If positive, refuge is broken.
+        spy_hist = spy_data.get('history', [])
+        tlt_hist = tlt_data.get('history', [])
+        if len(spy_hist) > 30 and len(tlt_hist) > 30:
+            min_len = min(len(spy_hist), len(tlt_hist), 40)
+            spy_ret = np.diff(np.log(spy_hist[-min_len:]))
+            tlt_ret = np.diff(np.log(tlt_hist[-min_len:]))
+            if len(spy_ret) == len(tlt_ret) and len(spy_ret) > 5:
+                corr = float(np.corrcoef(spy_ret, tlt_ret)[0, 1])
+                if corr > 0.3:
+                    alerts.append({
+                        'id': 'spy_tlt_corr',
+                        'severity': 'alert',
+                        'title': f'🔴 SPY-TLT correlación POSITIVA: {corr:.2f}',
+                        'detail': f'SPY y TLT se mueven en la MISMA dirección (corr={corr:.2f}). '
+                                  'Esto rompe la premisa de que TLT es refugio cuando SPY cae.',
+                        'implication': 'CRÍTICO: La estrategia de refugio en TLT NO FUNCIONA en este régimen. '
+                                       'Si SPY cae, TLT también caerá. Usar GLD o SHY en su lugar. '
+                                       'Esto ocurrió en 2022 (inflación alta + Fed subiendo tipos).',
+                        'methodology': f'Correlación log-returns de SPY y TLT en {min_len} días. '
+                                       'Normal: -0.3 a +0.1. Alerta si >+0.30.',
+                    })
+                elif corr > 0.1:
+                    alerts.append({
+                        'id': 'spy_tlt_corr',
+                        'severity': 'warning',
+                        'title': f'🟡 SPY-TLT correlación débil: {corr:.2f}',
+                        'detail': f'La correlación SPY-TLT ({corr:.2f}) está en zona ambigua. '
+                                  'No es negativa fuerte como se espera.',
+                        'implication': 'TLT puede funcionar como refugio parcial, pero con menos eficacia.',
+                        'methodology': f'Correlación de log-returns en {min_len} días.',
+                    })
+                else:
+                    alerts.append({
+                        'id': 'spy_tlt_corr',
+                        'severity': 'ok',
+                        'title': f'🟢 SPY-TLT correlación negativa: {corr:.2f}',
+                        'detail': f'SPY y TLT se mueven en direcciones opuestas (corr={corr:.2f}). '
+                                  'TLT funciona como refugio.',
+                        'implication': 'La premisa de refugio del modelo es válida.',
+                        'methodology': f'Correlación log-returns en {min_len} días. Esperado: <+0.10.',
+                    })
+
+        # ── 4. Entropy Change (directional) ──
+        # Computing entropy requires returns matrix, use SPY+TLT+GLD+QQQ+IWM as proxy
+        proxy_hists = {k: market.get(k, {}).get('history', [])
+                       for k in ['SPY', 'QQQ', 'IWM', 'TLT', 'GLD', 'UUP']}
+        min_hist = min((len(v) for v in proxy_hists.values() if len(v) > 0), default=0)
+        if min_hist > 40:
+            try:
+                from core.reversibility import compute_von_neumann_entropy
+                returns_mat = np.column_stack([
+                    np.diff(np.log(v[-min_hist:])) for v in proxy_hists.values() if len(v) >= min_hist
+                ])
+                # Recent vs older entropy
+                mid = len(returns_mat) // 2
+                corr_old = np.corrcoef(returns_mat[:mid].T)
+                corr_new = np.corrcoef(returns_mat[mid:].T)
+
+                eig_old = np.linalg.eigvalsh(corr_old)
+                eig_new = np.linalg.eigvalsh(corr_new)
+                eig_old = eig_old[eig_old > 1e-10]
+                eig_new = eig_new[eig_new > 1e-10]
+
+                ent_old = float(compute_von_neumann_entropy(eig_old))
+                ent_new = float(compute_von_neumann_entropy(eig_new))
+                ent_change = ent_new - ent_old
+
+                if ent_change < -0.3:
+                    alerts.append({
+                        'id': 'entropy',
+                        'severity': 'alert',
+                        'title': f'🔴 Entropía CAYENDO fuerte: {ent_new:.2f} (antes: {ent_old:.2f})',
+                        'detail': f'Cambio de entropía: {ent_change:.2f}. Los activos se están '
+                                  'moviendo JUNTOS (contagio). La diversificación pierde eficacia.',
+                        'implication': 'Cuando la entropía cae drásticamente, TODOS los activos se correlacionan. '
+                                       'Nuestro modelo O-U asume estructura de correlación estable. Si el grafo de '
+                                       'correlaciones muta, las z-scores y señales de refugio pueden fallar.',
+                        'methodology': f'Entropía de Von Neumann calculada sobre la matriz de correlaciones '
+                                       f'de 6 ETFs proxy (SPY,QQQ,IWM,TLT,GLD,UUP). '
+                                       f'Se comparan dos ventanas de {mid} días. Alerta si cae >0.30.',
+                    })
+                elif ent_change < -0.15:
+                    alerts.append({
+                        'id': 'entropy',
+                        'severity': 'warning',
+                        'title': f'🟡 Entropía bajando: {ent_new:.2f} (antes: {ent_old:.2f})',
+                        'detail': f'Cambio: {ent_change:.2f}. Tendencia a mayor correlación entre activos.',
+                        'implication': 'La diversificación funciona peor de lo habitual. Vigilar.',
+                        'methodology': f'Entropía VN sobre 6 ETFs. Warning si cae >0.15.',
+                    })
+                else:
+                    alerts.append({
+                        'id': 'entropy',
+                        'severity': 'ok',
+                        'title': f'🟢 Entropía estable: {ent_new:.2f}',
+                        'detail': f'Cambio: {ent_change:+.2f}. La estructura de correlaciones es estable.',
+                        'implication': 'El grafo de correlaciones no ha mutado. Modelo O-U fiable.',
+                        'methodology': 'Entropía VN sobre 6 ETFs proxy.',
+                    })
+            except Exception:
+                pass
+
+        # ── 5. Refuge Effectiveness ──
+        # If VIX>20 AND recommended refuge (TLT/GLD) also losing money → model broken
+        if vix_now >= 20:
+            tlt_chg = tlt_data.get('chg_20d', 0)
+            gld_chg = gld_data.get('chg_20d', 0)
+            if tlt_chg < -0.03 and gld_chg < -0.03:
+                alerts.append({
+                    'id': 'refuge_effectiveness',
+                    'severity': 'alert',
+                    'title': '🔴 Refugio NO FUNCIONA: TLT y GLD caen en estrés',
+                    'detail': f'VIX={vix_now:.0f} (estrés), pero TLT {tlt_chg*100:+.1f}% y GLD {gld_chg*100:+.1f}% en 20d. '
+                              'AMBOS refugios están fallando.',
+                    'implication': 'CRÍTICO: El modelo dice "refugio" pero el refugio TAMBIÉN pierde dinero. '
+                                   'Esto ocurre en crisis de liquidez extrema (todo se vende = solo cash). '
+                                   'Mover a SHY (cash) inmediatamente.',
+                    'methodology': 'Si VIX≥20 y tanto TLT como GLD pierden >3% en 20d, los refugios no protegen.',
+                })
+            elif tlt_chg < -0.03 or gld_chg < -0.03:
+                failing = 'TLT' if tlt_chg < -0.03 else 'GLD'
+                ok_one = 'GLD' if tlt_chg < -0.03 else 'TLT'
+                alerts.append({
+                    'id': 'refuge_effectiveness',
+                    'severity': 'warning',
+                    'title': f'🟡 Refugio parcial: {failing} falla pero {ok_one} funciona',
+                    'detail': f'VIX={vix_now:.0f}, {failing} pierde dinero pero {ok_one} aguanta.',
+                    'implication': f'Concentrar refugio en {ok_one} y SHY. No usar {failing}.',
+                    'methodology': 'Se verifica que los refugios suban (o al menos no caigan >3%) cuando VIX≥20.',
+                })
+            else:
+                alerts.append({
+                    'id': 'refuge_effectiveness',
+                    'severity': 'ok',
+                    'title': '🟢 Refugios funcionan correctamente en estrés',
+                    'detail': f'VIX={vix_now:.0f} (estrés) y los refugios aguantan: '
+                              f'TLT {tlt_chg*100:+.1f}%, GLD {gld_chg*100:+.1f}%.',
+                    'implication': 'El modelo y la realidad coinciden. Refugio válido.',
+                    'methodology': 'TLT y GLD no pierden >3% en 20d durante estrés.',
+                })
+
+        # ── 6. VIX Spike Without Recovery ──
+        # Backtest assumes VIX spikes revert in 1-2 weeks
+        if len(vix_hist) >= 20:
+            vix_5d = vix_hist[-5:]
+            vix_20d = vix_hist[-20:]
+            if all(v > 25 for v in vix_5d) and all(v > 22 for v in vix_20d):
+                alerts.append({
+                    'id': 'vix_persistent',
+                    'severity': 'warning',
+                    'title': '🟡 VIX persistente >25 durante 20 días',
+                    'detail': f'VIX lleva 20+ días por encima de 22 sin revertir. '
+                              'Nuestro backtest asume que los spikes revierten en 1-2 semanas.',
+                    'implication': 'Si el VIX permanece elevado, el gate estará activo mucho tiempo → '
+                                   'perdemos oportunidades de alpha. Puede indicar un cambio de régimen estructural.',
+                    'methodology': 'Se verifica si VIX>25 durante 5d consecutivos Y >22 durante 20d.',
+                })
+
+        # Summary
+        n_alerts = sum(1 for a in alerts if a['severity'] == 'alert')
+        n_warnings = sum(1 for a in alerts if a['severity'] == 'warning')
+        n_ok = sum(1 for a in alerts if a['severity'] == 'ok')
+
+        return {
+            'alerts': alerts,
+            'summary': {
+                'alerts': n_alerts,
+                'warnings': n_warnings,
+                'ok': n_ok,
+                'status': 'alert' if n_alerts > 0 else ('warning' if n_warnings > 0 else 'ok'),
+            }
+        }
+
     # ─── Main builders ───
 
     def build_snapshot(self, include_system=True):
@@ -337,6 +592,9 @@ class DashboardPipeline:
         print("  → Regime classification...", flush=True)
         regime = self.classify_regime(market)
 
+        print("  → Model health checks...", flush=True)
+        health = self.compute_model_health(market)
+
         print("  → Momentum ranking...", flush=True)
         stocks = self.fetch_momentum_ranking()
 
@@ -351,6 +609,7 @@ class DashboardPipeline:
             'yields': yields,
             'fred': fred,
             'regime': regime,
+            'health': health,
             'stocks': stocks,
             'system_analytics': system_analytics,
         }

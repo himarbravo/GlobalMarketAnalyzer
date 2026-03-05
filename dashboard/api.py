@@ -65,6 +65,12 @@ def api_regime():
     return jsonify(snapshot.get('regime', {}))
 
 
+@app.route('/api/health')
+def api_health():
+    snapshot = _get_snapshot()
+    return jsonify(snapshot.get('health', {}))
+
+
 @app.route('/api/glossary')
 def api_glossary():
     from strategy.glossary import get_all_indicators

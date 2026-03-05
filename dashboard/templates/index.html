@@ -591,6 +591,109 @@
             background: var(--blue);
         }
 
+        /* ── Health ── */
+        .health-card {
+            grid-column: 1 / -1;
+        }
+
+        .health-summary {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+
+        .health-count {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        .health-count.alert-count {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--red);
+        }
+
+        .health-count.warning-count {
+            background: rgba(210, 153, 34, 0.15);
+            color: var(--yellow);
+        }
+
+        .health-count.ok-count {
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--green);
+        }
+
+        .health-alert {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+
+        .health-alert.sev-alert {
+            border-left: 3px solid var(--red);
+        }
+
+        .health-alert.sev-warning {
+            border-left: 3px solid var(--yellow);
+        }
+
+        .health-alert.sev-ok {
+            border-left: 3px solid var(--green);
+        }
+
+        .health-alert-header {
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-secondary);
+        }
+
+        .health-alert-header:hover {
+            background: rgba(88, 166, 255, 0.05);
+        }
+
+        .health-alert-title {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .health-alert-toggle {
+            font-size: 12px;
+            color: var(--text-muted);
+            transition: transform 0.2s;
+        }
+
+        .health-alert-body {
+            display: none;
+            padding: 12px 14px;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            background: var(--bg-primary);
+        }
+
+        .health-alert-body.open {
+            display: block;
+        }
+
+        .health-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--blue);
+            margin-top: 8px;
+            margin-bottom: 2px;
+        }
+
+        .health-label:first-child {
+            margin-top: 0;
+        }
+
         /* ── Prompt ── */
         .prompt-card {
             grid-column: 1 / -1;
@@ -913,6 +1016,16 @@
                 ],
                 tip: 'El prompt incluye 8 preguntas diseñadas para extraer MÁXIMO valor del LLM: diagnóstico, refugio, precedentes históricos, vulnerabilidades, z-scores, riesgos, selección de 5 acciones, y contradicciones.',
             },
+            MODEL_HEALTH: {
+                icon: '🔬', title: 'Salud del Modelo — ¿Estamos overfiteados?',
+                what: 'Esta sección monitoriza 6 "witnesses" (testigos) que detectan si las condiciones actuales del mercado son MUY DIFERENTES de las condiciones en las que calibramos nuestro modelo.\n\nSi los witnesses están en rojo, significa que nuestros umbrales y reglas pueden NO funcionar en el régimen actual, porque fueron calibrados en un régimen diferente.',
+                states: [
+                    ['🟢 OK', 'El witness está dentro del rango esperado. El modelo opera en condiciones similares a las del backtest.'],
+                    ['🟡 Warning', 'El witness detecta algo inusual. No es crítico pero hay que vigilar.'],
+                    ['🔴 Alerta', 'El witness detecta una desviación FUERTE. Las premisas del modelo pueden estar ROTAS. Leer los detalles para decidir qué hacer.'],
+                ],
+                tip: 'Si hay 0 alertas rojas → confía en el modelo. Si hay 1-2 warnings → vigila. Si hay 1+ alertas rojas → lee cada una, entiende QUÉ premisa se rompe, y ajusta manualmente (por ejemplo, si SPY-TLT correlación es positiva, NO uses TLT como refugio).',
+            },
         };
 
         function showGlossary(key) {
@@ -970,6 +1083,53 @@
         function refreshData() {
             document.getElementById('dashboard').innerHTML = `<div class="loading"><div class="spinner"></div> Actualizando datos...</div>`;
             fetchData(true);
+        }
+
+        function renderHealthSummary() {
+            if (!DATA || !DATA.health) return '';
+            const s = DATA.health.summary || {};
+            let parts = [];
+            if (s.alerts > 0) parts.push(`<span class="health-count alert-count">🔴 ${s.alerts} alertas</span>`);
+            if (s.warnings > 0) parts.push(`<span class="health-count warning-count">🟡 ${s.warnings} warnings</span>`);
+            if (s.ok > 0) parts.push(`<span class="health-count ok-count">🟢 ${s.ok} OK</span>`);
+            return parts.join('');
+        }
+
+        function renderHealthAlerts() {
+            if (!DATA || !DATA.health) return '<div style="color:var(--text-muted)">Sin datos de salud</div>';
+            const alerts = DATA.health.alerts || [];
+            if (alerts.length === 0) return '<div style="color:var(--text-muted)">Sin witnesses disponibles</div>';
+            // Sort: alerts first, then warnings, then ok
+            const order = { alert: 0, warning: 1, ok: 2 };
+            alerts.sort((a, b) => (order[a.severity] || 2) - (order[b.severity] || 2));
+            return alerts.map((a, i) => `
+                <div class="health-alert sev-${a.severity}">
+                    <div class="health-alert-header" onclick="toggleHealth(${i})">
+                        <span class="health-alert-title">${a.title}</span>
+                        <span class="health-alert-toggle" id="htoggle-${i}">▶</span>
+                    </div>
+                    <div class="health-alert-body" id="hbody-${i}">
+                        <div class="health-label">Detalle</div>
+                        <div>${a.detail}</div>
+                        <div class="health-label">Implicación para tu cartera</div>
+                        <div>${a.implication}</div>
+                        <div class="health-label">Cómo se calcula</div>
+                        <div>${a.methodology}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleHealth(i) {
+            const body = document.getElementById('hbody-' + i);
+            const toggle = document.getElementById('htoggle-' + i);
+            if (body.classList.contains('open')) {
+                body.classList.remove('open');
+                toggle.textContent = '▶';
+            } else {
+                body.classList.add('open');
+                toggle.textContent = '▼';
+            }
         }
 
         function renderDashboard() {
@@ -1083,6 +1243,11 @@
                     <div class="refuge-rec-text">${regime.recommended_refuge || '—'}</div>
                 </div>
                 ${signals}
+            </div>
+
+            <div class="card health-card">
+                <div class="card-title">🔬 Salud del Modelo ${infoBtn('MODEL_HEALTH')} <span class="health-summary">${renderHealthSummary()}</span></div>
+                ${renderHealthAlerts()}
             </div>
 
             <div class="card instruments-card">
