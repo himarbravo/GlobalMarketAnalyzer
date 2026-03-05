@@ -65,6 +65,12 @@ def api_regime():
     return jsonify(snapshot.get('regime', {}))
 
 
+@app.route('/api/glossary')
+def api_glossary():
+    from strategy.glossary import get_all_indicators
+    return jsonify(get_all_indicators())
+
+
 if __name__ == '__main__':
     print("📊 Starting Dashboard API on http://localhost:8050", flush=True)
     # Pre-load data
