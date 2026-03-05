@@ -86,7 +86,7 @@ class DashboardPipeline:
         data = {}
         for tk, desc in self.MARKET_TICKERS.items():
             try:
-                hist = yf.Ticker(tk).history(period="6mo")
+                hist = yf.Ticker(tk).history(period="1y")
                 if hist.empty or len(hist) < 2:
                     continue
                 close = hist['Close']
@@ -101,8 +101,8 @@ class DashboardPipeline:
                     'chg_1d': (last / prev - 1) if prev else 0,
                     'chg_5d': (last / float(close.iloc[-6]) - 1) if len(close) > 5 else 0,
                     'chg_20d': (last / float(close.iloc[-21]) - 1) if len(close) > 20 else 0,
-                    'history': [float(x) for x in close.tail(60).values],
-                    'dates': [d.strftime('%Y-%m-%d') for d in close.tail(60).index],
+                    'history': [float(x) for x in close.tail(250).values],
+                    'dates': [d.strftime('%Y-%m-%d') for d in close.tail(250).index],
                 }
             except Exception:
                 pass
@@ -329,74 +329,136 @@ class DashboardPipeline:
         tlt_data = market.get('TLT', {})
         gld_data = market.get('GLD', {})
 
-        # ── 1. VIX Distribution Shift ──
-        # Historical VIX: mean ~19, std ~7. If 6M avg is far from this, regime changed.
-        if len(vix_hist) >= 40:
-            vix_mean_recent = np.mean(vix_hist[-40:])  # ~2 months of data available
-            vix_std_recent = np.std(vix_hist[-40:])
-            hist_mean, hist_std = 19.0, 7.0
+        # ── 1. VIX Distribution Shift (multi-window) ──
+        # Historical VIX benchmarks by period:
+        HIST_PERIODS = {
+            '2004-07 (bull)':    {'mean': 14.0, 'std': 3.0},
+            '2008-09 (crisis)':  {'mean': 32.0, 'std': 12.0},
+            '2010-19 (expansión)': {'mean': 16.5, 'std': 5.0},
+            '2020 (COVID)':      {'mean': 29.0, 'std': 10.0},
+            '2022 (inflación)':  {'mean': 25.5, 'std': 5.0},
+            '1990-2024 (global)': {'mean': 19.0, 'std': 7.0},
+        }
+        windows = [('20d', 20), ('60d', 60), ('120d', 120)]
+        if len(vix_hist) >= 20:
+            window_stats = []
+            for wname, wlen in windows:
+                if len(vix_hist) >= wlen:
+                    subset = vix_hist[-wlen:]
+                    wmean = float(np.mean(subset))
+                    wstd = float(np.std(subset))
+                    window_stats.append((wname, wlen, wmean, wstd))
 
-            z_shift = abs(vix_mean_recent - hist_mean) / hist_std
+            # Find closest historical period
+            current_mean = window_stats[0][2]  # 20d mean
+            best_match = min(HIST_PERIODS.items(),
+                             key=lambda x: abs(x[1]['mean'] - current_mean))
+
+            # Multi-window detail
+            detail_lines = []
+            for wname, wlen, wmean, wstd in window_stats:
+                z = abs(wmean - 19.0) / 7.0
+                detail_lines.append(f'{wname}: media={wmean:.1f}, std={wstd:.1f}, z={z:.1f}σ')
+            detail_str = ' | '.join(detail_lines)
+
+            # Overall severity based on longest available window
+            longest = window_stats[-1]
+            z_shift = abs(longest[2] - 19.0) / 7.0
+
+            # Period similarity analysis
+            period_match_str = f'Periodo más similar: {best_match[0]} (media={best_match[1]["mean"]})'
+            crisis_periods = ['2008-09 (crisis)', '2020 (COVID)', '2022 (inflación)']
+
             if z_shift > 2.0:
                 alerts.append({
                     'id': 'vix_distribution',
                     'severity': 'alert',
-                    'title': '🔴 VIX fuera de rango histórico',
-                    'detail': f'Media VIX reciente: {vix_mean_recent:.1f} (histórica: ~19). '
-                              f'Desviación: {z_shift:.1f}σ. Nuestros umbrales se calibraron en media ~19.',
-                    'implication': 'Los umbrales VIX<15/20/30 pueden NO ser válidos en este régimen. '
-                                   'Un VIX con media ~28 haría que umbral=20 esté siempre activo → overfitting.',
-                    'methodology': 'Se compara la media del VIX de los últimos 40 días con la media '
-                                   'histórica (19). Alerta si |diferencia| > 2 × std histórica (7).',
+                    'title': f'🔴 VIX fuera de rango: {longest[2]:.1f} ({z_shift:.1f}σ)',
+                    'detail': f'{detail_str}\n{period_match_str}',
+                    'implication': f'Los umbrales VIX<15/20/30 pueden NO ser válidos. '
+                                   f'{"Se parece a un periodo de crisis histórica." if best_match[0] in crisis_periods else "Régimen inusual sin precedente claro."}',
+                    'methodology': f'Media VIX en {len(windows)} ventanas vs media histórica (19±7). '
+                                   f'Periodos de referencia: bull (14), expansión (16.5), global (19), '
+                                   f'inflación (25.5), COVID (29), crisis (32).',
                 })
             elif z_shift > 1.0:
                 alerts.append({
                     'id': 'vix_distribution',
                     'severity': 'warning',
-                    'title': '🟡 VIX algo elevado sobre rango habitual',
-                    'detail': f'Media VIX reciente: {vix_mean_recent:.1f} vs histórica ~19. '
-                              f'Desviación: {z_shift:.1f}σ. Dentro de lo tolerable pero vigilar.',
-                    'implication': 'Los umbrales aún son válidos pero estamos en la zona límite.',
-                    'methodology': 'Media VIX 40d vs media histórica (19). Warning si >1σ, alerta si >2σ.',
+                    'title': f'🟡 VIX elevado: {longest[2]:.1f} ({z_shift:.1f}σ)',
+                    'detail': f'{detail_str}\n{period_match_str}',
+                    'implication': 'Umbrales aún válidos pero en zona límite. Vigilar tendencia.',
+                    'methodology': f'Comparación multi-ventana. Warning si >1σ.',
                 })
             else:
                 alerts.append({
                     'id': 'vix_distribution',
                     'severity': 'ok',
-                    'title': '🟢 Distribución VIX dentro de rango',
-                    'detail': f'Media VIX reciente: {vix_mean_recent:.1f} ({z_shift:.1f}σ de la media histórica). Normal.',
-                    'implication': 'Los umbrales calibrados en backtest siguen siendo válidos.',
-                    'methodology': 'Media VIX 40d vs media histórica (19±7).',
+                    'title': f'🟢 Distribución VIX normal: {longest[2]:.1f}',
+                    'detail': f'{detail_str}\n{period_match_str}',
+                    'implication': 'Umbrales del backtest siguen siendo válidos.',
+                    'methodology': 'Media VIX multi-ventana dentro de ±1σ de la media histórica.',
                 })
 
-        # ── 2. VIX Gate Frequency ──
-        # In backtest, VIX>MA20 triggers ~37% of the time. If very different, model breaks.
+        # ── 2. VIX Gate Frequency (multi-window) ──
+        # In backtest, VIX>MA20 triggers ~37% of the time.
         if len(vix_hist) >= 20:
             ma20_vals = [np.mean(vix_hist[max(0,i-19):i+1]) for i in range(19, len(vix_hist))]
             vix_subset = vix_hist[19:]
-            gate_active = sum(1 for v, m in zip(vix_subset, ma20_vals) if v > m)
-            freq = gate_active / len(vix_subset) if vix_subset else 0
+
+            # Compute gate freq at multiple windows
+            gate_windows = []
+            for gname, glen in [('20d', 20), ('60d', 60), ('120d', 120), ('todo', len(vix_subset))]:
+                if len(vix_subset) >= glen:
+                    sub_v = vix_subset[-glen:]
+                    sub_m = ma20_vals[-glen:]
+                    ga = sum(1 for v, m in zip(sub_v, sub_m) if v > m)
+                    gf = ga / glen
+                    gate_windows.append((gname, glen, gf))
+
+            freq_detail = ' | '.join(f'{n}: {f*100:.0f}%' for n, _, f in gate_windows)
+            # Use longest window for severity
+            freq = gate_windows[-1][2] if gate_windows else 0
             expected = 0.37
+
+            # Trend: is frequency increasing? (short > long = worsening)
+            trend_note = ''
+            if len(gate_windows) >= 2:
+                short_f = gate_windows[0][2]
+                long_f = gate_windows[-1][2]
+                if short_f > long_f + 0.15:
+                    trend_note = ' ⬆️ TENDENCIA: frecuencia AUMENTANDO (corto plazo > largo plazo).'
+                elif short_f < long_f - 0.15:
+                    trend_note = ' ⬇️ MEJORANDO: frecuencia bajando (corto plazo < largo plazo).'
 
             if abs(freq - expected) > 0.20:
                 alerts.append({
                     'id': 'gate_frequency',
                     'severity': 'alert',
-                    'title': f'🔴 Gate VIX>MA20 frecuencia anómala: {freq*100:.0f}%',
-                    'detail': f'El gate se activa {freq*100:.0f}% del tiempo vs {expected*100:.0f}% esperado en backtest. '
-                              f'Diferencia: {abs(freq-expected)*100:.0f} puntos.',
-                    'implication': f'{"El gate NUNCA se apaga → refugio permanente = sin alpha." if freq > 0.57 else "El gate NUNCA se activa → sin protección cuando venga la crisis."}',
-                    'methodology': f'Se cuentan los días con VIX>MA20 en los últimos {len(vix_subset)} días. '
-                                   'Backtest 2004-2026 dio ~37%. Alerta si difiere >20pp.',
+                    'title': f'🔴 Gate VIX>MA20 anómalo: {freq*100:.0f}% (esperado ~37%)',
+                    'detail': f'Frecuencia por ventana: {freq_detail}.{trend_note}',
+                    'implication': f'{"Gate SIEMPRE activo → refugio permanente = sin alpha. El modelo asume que esto ocurre ~37%% del tiempo." if freq > 0.57 else "Gate RARA VEZ activo → sin protección. El mercado está demasiado tranquilo para que el gate funcione."}',
+                    'methodology': f'Gate = VIX > MA20. Frecuencia medida en {len(gate_windows)} ventanas. '
+                                   'Backtest walk-forward (2004-2026, 19 periodos): media 37%, rango 25-50%. '
+                                   'Alerta si la ventana más larga difiere >20pp de 37%.',
+                })
+            elif abs(freq - expected) > 0.10:
+                alerts.append({
+                    'id': 'gate_frequency',
+                    'severity': 'warning',
+                    'title': f'🟡 Gate VIX>MA20 algo desviado: {freq*100:.0f}%',
+                    'detail': f'Frecuencia por ventana: {freq_detail}.{trend_note}',
+                    'implication': 'Dentro del rango histórico pero en el extremo. Vigilar.',
+                    'methodology': 'Rango backtest: 25-50%. Warning si difiere 10-20pp de 37%.',
                 })
             else:
                 alerts.append({
                     'id': 'gate_frequency',
                     'severity': 'ok',
-                    'title': f'🟢 Frecuencia gate VIX>MA20: {freq*100:.0f}% (esperado ~37%)',
-                    'detail': 'La frecuencia de activación del gate es coherente con el backtest.',
-                    'implication': 'El modelo opera en un régimen similar al de entrenamiento.',
-                    'methodology': f'Calculado sobre {len(vix_subset)} días disponibles.',
+                    'title': f'🟢 Gate VIX>MA20: {freq*100:.0f}% (esperado ~37%)',
+                    'detail': f'Frecuencia por ventana: {freq_detail}.{trend_note}',
+                    'implication': 'El modelo opera en régimen similar al de entrenamiento.',
+                    'methodology': f'Calculado en {len(gate_windows)} ventanas.',
                 })
 
         # ── 3. SPY-TLT Correlation ──
