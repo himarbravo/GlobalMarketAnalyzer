@@ -220,3 +220,57 @@ def build_prompt(snapshot, sections=None):
         parts.append(_section_questions())
 
     return '\n\n'.join(parts)
+
+
+def build_calendar_prompt(snapshot):
+    """
+    Build a focused prompt asking the LLM for upcoming key dates.
+    Includes the user's tickers so the LLM can give earnings dates.
+    """
+    from datetime import datetime
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    # Extract tickers from portfolio
+    tickers = [s['ticker'] for s in snapshot.get('stocks', [])]
+    ticker_str = ', '.join(tickers[:20]) if tickers else 'AAPL, NVDA, AMZN, MSFT, META'
+
+    return f"""Eres un analista de mercados. HOY es {today}.
+
+Necesito un CALENDARIO de eventos que pueden mover el mercado
+en las próximas 4 semanas. Para cada evento, dame:
+- Fecha exacta (o estimada si no se ha confirmado)
+- Qué es
+- Impacto esperado en mi cartera
+- Qué debería vigilar o hacer ANTES del evento
+
+══ MI CARTERA ACTUAL ══
+{ticker_str}
+
+══ EVENTOS QUE NECESITO ══
+1. REUNIONES DE LA FED (FOMC): ¿cuándo es la próxima? ¿Se espera
+   cambio de tipos? ¿Qué implica para TLT y el mercado?
+
+2. DATOS DE INFLACIÓN: ¿cuándo sale el próximo CPI/PCE?
+   ¿El consenso espera subida o bajada?
+
+3. DATOS DE EMPLEO: ¿cuándo sale el próximo Non-Farm Payrolls?
+   ¿Cómo afecta a mi modelo si sorprende?
+
+4. EARNINGS DE MIS EMPRESAS: De mi cartera ({ticker_str}),
+   ¿cuáles reportan resultados en las próximas 4 semanas?
+   Dame fecha, consenso EPS, y si es riesgo o oportunidad.
+
+5. VENCIMIENTOS IMPORTANTES: ¿Hay vencimiento de opciones (OpEx),
+   rebalanceo de índices, o "triple witching" próximamente?
+
+6. OTROS EVENTOS MACRO: GDP, PMI, reuniones de otros bancos centrales
+   (BCE, BoJ), eventos geopolíticos programados.
+
+══ FORMATO DE RESPUESTA ══
+Dame una tabla ordenada por fecha con columnas:
+| Fecha | Evento | Impacto | Acción sugerida |
+
+Después de la tabla, dime:
+- ¿Cuál es el evento MÁS PELIGROSO para mi cartera?
+- ¿Debería ajustar posiciones ANTES de algún evento concreto?
+- ¿Hay alguna "ventana tranquila" donde es seguro mantener posiciones?"""

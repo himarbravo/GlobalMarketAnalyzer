@@ -1281,6 +1281,7 @@
                     <span>🤖 Prompt para Gemini ${infoBtn('PROMPT')}</span>
                     <div>
                         <span id="copy-feedback" class="copy-feedback">✅ Copiado</span>
+                        <button class="btn" onclick="copyCalendar()" title="Prompt para pedir eventos y fechas clave">📅 Calendario</button>
                         <button class="btn btn-primary" onclick="copyPrompt()">📋 Copiar prompt</button>
                     </div>
                 </div>
@@ -1330,6 +1331,19 @@
             navigator.clipboard.writeText(document.getElementById('prompt-text').textContent).then(() => {
                 const f = document.getElementById('copy-feedback'); f.style.display = 'inline'; setTimeout(() => f.style.display = 'none', 2000);
             });
+        }
+
+        function copyCalendar() {
+            fetch('/api/calendar-prompt')
+                .then(r => r.text())
+                .then(text => {
+                    navigator.clipboard.writeText(text).then(() => {
+                        const f = document.getElementById('copy-feedback');
+                        f.textContent = '📅 Calendario copiado!';
+                        f.style.display = 'inline';
+                        setTimeout(() => { f.style.display = 'none'; f.textContent = '✅ Copiado'; }, 2000);
+                    });
+                });
         }
 
         fetchData();

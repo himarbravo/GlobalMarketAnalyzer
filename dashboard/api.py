@@ -71,6 +71,14 @@ def api_health():
     return jsonify(snapshot.get('health', {}))
 
 
+@app.route('/api/calendar-prompt')
+def api_calendar_prompt():
+    from strategy.prompt_template import build_calendar_prompt
+    snapshot = _get_snapshot()
+    prompt = build_calendar_prompt(snapshot)
+    return Response(prompt, mimetype='text/plain; charset=utf-8')
+
+
 @app.route('/api/glossary')
 def api_glossary():
     from strategy.glossary import get_all_indicators
