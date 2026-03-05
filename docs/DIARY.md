@@ -50,6 +50,23 @@ v(t) macro         Tail risk, timing de mercado        Dirección de stocks
 ### Bug corregido
 `signal_generator.py`: `asset_rev_overlap` → `asset_sector_c` (NameError P7)
 
+### 🗺️ Ruta futura: Validación rigurosa de la estrategia
+
+Resultados actuales (2024-2026, 2 años):
+- Momentum TOP 10: +39.5%, Sharpe 2.13, MaxDD -20.2%
+- Combined (timing+mom5): +18.8%, Sharpe 1.18, MaxDD -8.4%
+
+**Estimación realista ajustada: ~18-22% ret/año, Sharpe ~0.9-1.2** (tras costes y sesgos).
+
+**Pasos necesarios para validar vs fondos reales:**
+1. [ ] Backtest extendido 2018-2026 (incluir COVID 2020, bear 2022)
+2. [ ] Costes de transacción reales (~0.3%/trade × 4 rebalanceos × 10 stocks)
+3. [ ] Walk-forward: reentrenar cada trimestre solo con datos pasados
+4. [ ] Paper trading live 6-12 meses (señales vs realidad)
+5. [ ] Comparar con benchmarks: ARK, Citadel, S&P 500, fondos mixtos top 25%
+6. [ ] Eliminar look-ahead bias: usar fecha publicación earnings, no fin de quarter
+7. [ ] Stress test: qué pasa si 1 de 10 stocks quiebra (-100%)
+
 ---
 
 ## 2026-03-04 — El Matemático: Session Summary
