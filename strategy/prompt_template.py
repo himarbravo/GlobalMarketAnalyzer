@@ -202,6 +202,36 @@ def _section_headlines(data):
     return '\n'.join(lines)
 
 
+def _section_sentiment(data):
+    """Generate sentiment & flows section."""
+    lines = ["═══ SENTIMIENTO Y FLUJOS ═══"]
+
+    # Fear & Greed
+    fg = data.get('fear_greed')
+    if fg:
+        val = fg['value']
+        clf = fg['classification']
+        lines.append(f"  Fear & Greed Index: {val}/100 ({clf})")
+        if val <= 25:
+            lines.append("  → Miedo extremo: históricamente buen momento para comprar.")
+        elif val >= 75:
+            lines.append("  → Codicia extrema: históricamente momento de cautela.")
+
+    # ETF Flows
+    flows = data.get('etf_flows', {})
+    if flows:
+        lines.append("  Flujos ETF (vol 5d vs 20d + dirección precio):")
+        for tk in ['SPY', 'QQQ', 'TLT', 'GLD', 'IWM']:
+            f = flows.get(tk)
+            if f:
+                emoji = '🟢' if f['signal'] == 'INFLOW' else ('🔴' if f['signal'] == 'OUTFLOW' else '⚪')
+                lines.append(
+                    f"    {emoji} {tk} ({f['name']}): {f['signal']} "
+                    f"(vol:{f['vol_ratio']:.2f}x, precio:{f['price_5d']:+.1%})")
+
+    return '\n'.join(lines)
+
+
 def build_prompt(snapshot, sections=None):
     """
     Build the complete LLM prompt from a snapshot dict.
@@ -218,7 +248,7 @@ def build_prompt(snapshot, sections=None):
     """
     if sections is None:
         sections = ['context', 'market', 'yields', 'fred',
-                    'headlines', 'system', 'stocks', 'questions']
+                    'headlines', 'sentiment', 'system', 'stocks', 'questions']
 
     parts = []
 
@@ -238,6 +268,9 @@ def build_prompt(snapshot, sections=None):
         hl = _section_headlines(snapshot)
         if hl:
             parts.append(hl)
+
+    if 'sentiment' in sections:
+        parts.append(_section_sentiment(snapshot))
 
     if 'system' in sections:
         parts.append(_section_system(snapshot))

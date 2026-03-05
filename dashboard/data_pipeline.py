@@ -201,6 +201,55 @@ class DashboardPipeline:
             pass
         return headlines
 
+    def fetch_fear_greed(self):
+        """Fetch Fear & Greed Index from alternative.me API."""
+        try:
+            import requests
+            r = requests.get('https://api.alternative.me/fng/?limit=1', timeout=8)
+            if r.status_code == 200:
+                d = r.json()
+                entry = d.get('data', [{}])[0]
+                return {
+                    'value': int(entry.get('value', 0)),
+                    'classification': entry.get('value_classification', 'Unknown'),
+                }
+        except Exception:
+            pass
+        return None
+
+    def fetch_etf_flows(self):
+        """Estimate ETF flows using volume ratio + price direction."""
+        etfs = {
+            'SPY': 'S&P 500', 'QQQ': 'Nasdaq 100', 'TLT': 'Bonos 20Y+',
+            'GLD': 'Oro', 'IWM': 'Small Caps',
+        }
+        flows = {}
+        for tk, name in etfs.items():
+            try:
+                h = yf.Ticker(tk).history(period='3mo')
+                if len(h) > 20:
+                    vol_20d = float(h['Volume'].tail(20).mean())
+                    vol_5d = float(h['Volume'].tail(5).mean())
+                    vol_ratio = vol_5d / vol_20d if vol_20d > 0 else 1.0
+                    price_5d = float(h['Close'].iloc[-1] / h['Close'].iloc[-6] - 1)
+
+                    if price_5d > 0 and vol_ratio > 1.1:
+                        signal = 'INFLOW'
+                    elif price_5d < 0 and vol_ratio > 1.1:
+                        signal = 'OUTFLOW'
+                    else:
+                        signal = 'NEUTRAL'
+
+                    flows[tk] = {
+                        'name': name,
+                        'vol_ratio': round(vol_ratio, 2),
+                        'price_5d': round(price_5d, 4),
+                        'signal': signal,
+                    }
+            except Exception:
+                pass
+        return flows
+
     def fetch_momentum_ranking(self):
         """Fetch momentum stocks with sector classification.
         Returns (stocks_flat, sectors_grouped):
@@ -290,15 +339,17 @@ class DashboardPipeline:
         """Run core system analytics (O-U, graph, entropy)."""
         analytics = {}
         try:
+            from db.database_manager import DatabaseManager
             from core.graph_builder import GraphBuilder
             from core.fundamental_filter import FundamentalFilter
             from core.heat_engine import HeatEngine
 
-            gb = GraphBuilder()
+            db = DatabaseManager()
+            gb = GraphBuilder(db)
             gb.load_data()
             gb.build()
 
-            ff = FundamentalFilter(gb.tickers)
+            ff = FundamentalFilter(db)
             ff.compute_all()
 
             engine = HeatEngine(gb, ff)
@@ -314,24 +365,15 @@ class DashboardPipeline:
 
             # Refuge signal
             if hasattr(engine, 'refuge_signal') and engine.refuge_signal is not None:
-                if len(engine.refuge_signal) > 0:
-                    analytics['refuge_signal'] = float(engine.refuge_signal[-1])
+                rs = engine.refuge_signal
+                if isinstance(rs, (int, float, np.floating)):
+                    analytics['refuge_signal'] = float(rs)
+                elif hasattr(rs, '__len__') and len(rs) > 0:
+                    analytics['refuge_signal'] = float(rs[-1])
 
             # Calibrated params
             analytics['s'] = float(gb.s) if hasattr(gb, 's') else 0.5
             analytics['gamma'] = float(engine.gamma) if hasattr(engine, 'gamma') else 1.0
-
-            # Reversion probabilities for top stocks
-            for i, t in enumerate(gb.tickers):
-                try:
-                    prob = engine.compute_probability(i, horizon=5)
-                    if prob:
-                        analytics[f'prob_{t}'] = {
-                            k: float(v) if isinstance(v, (int, float, np.floating)) else v
-                            for k, v in prob.items()
-                        }
-                except Exception:
-                    pass
 
             # Von Neumann entropy
             try:
@@ -850,6 +892,12 @@ class DashboardPipeline:
         print("  → Headlines...", flush=True)
         headlines = self.fetch_headlines()
 
+        print("  → Sentiment (Fear & Greed)...", flush=True)
+        fear_greed = self.fetch_fear_greed()
+
+        print("  → ETF Flows...", flush=True)
+        etf_flows = self.fetch_etf_flows()
+
         print("  → Regime classification...", flush=True)
         regime = self.classify_regime(market)
 
@@ -870,6 +918,8 @@ class DashboardPipeline:
             'yields': yields,
             'fred': fred,
             'headlines': headlines,
+            'fear_greed': fear_greed,
+            'etf_flows': etf_flows,
             'regime': regime,
             'health': health,
             'stocks': stocks,
