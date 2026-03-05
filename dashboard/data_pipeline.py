@@ -65,13 +65,15 @@ class DashboardPipeline:
     }
 
     FRED_INDICATORS = {
-        'CPIAUCSL': 'CPI (Inflación)',
-        'UNRATE': 'Desempleo',
-        'FEDFUNDS': 'Fed Funds Rate',
-        'T10Y2Y': 'Spread 10Y-2Y',
-        'BAMLH0A0HYM2': 'High Yield Spread',
-        'DTWEXBGS': 'Trade Weighted USD',
-        'DGS10': 'Yield 10Y (FRED)',
+        # column_name → display name
+        'cpi_yoy':              'CPI (Inflación YoY)',
+        'credit_spread_bbb':    'High Yield Spread (BBB)',
+        'yield_spread_10y_2y':  'Spread 10Y-2Y',
+        'oil_wti':              'Petróleo WTI',
+        'dxy':                  'Dollar Index (DXY)',
+        'gold':                 'Oro (Futures)',
+        'copper':               'Cobre',
+        'natural_gas':          'Gas Natural',
     }
 
     TOP_N = 20
@@ -129,31 +131,48 @@ class DashboardPipeline:
         return curve
 
     def fetch_fred(self):
-        """Fetch FRED indicators from Supabase."""
+        """Fetch macro indicators from Supabase macro_indicators table."""
         macro = {}
         try:
             from db.database_manager import DatabaseManager
             db = DatabaseManager()
-            for code, name in self.FRED_INDICATORS.items():
-                try:
-                    resp = (db.client.table('macro_data')
-                            .select('date,value')
-                            .eq('indicator', code)
-                            .order('date', desc=True)
-                            .limit(5)
-                            .execute())
-                    if resp.data and len(resp.data) > 0:
-                        latest = resp.data[0]
-                        prev = resp.data[-1] if len(resp.data) > 1 else latest
-                        macro[code] = {
+
+            # Get 2 most recent rows for comparison
+            cols = ','.join(['date'] + list(self.FRED_INDICATORS.keys()))
+            resp = (db.client.table('macro_indicators')
+                    .select(cols)
+                    .order('date', desc=True)
+                    .limit(10)
+                    .execute())
+
+            if resp.data and len(resp.data) >= 2:
+                # Find latest row with actual data for each indicator
+                for col, name in self.FRED_INDICATORS.items():
+                    latest_val = None
+                    latest_date = None
+                    prev_val = None
+                    prev_date = None
+
+                    # Walk rows to find latest non-null, then previous non-null
+                    for row in resp.data:
+                        val = row.get(col)
+                        if val is not None:
+                            if latest_val is None:
+                                latest_val = float(val)
+                                latest_date = row['date']
+                            elif prev_val is None:
+                                prev_val = float(val)
+                                prev_date = row['date']
+                                break
+
+                    if latest_val is not None:
+                        macro[col] = {
                             'name': name,
-                            'value': float(latest['value']),
-                            'date': latest['date'],
-                            'prev_value': float(prev['value']),
-                            'prev_date': prev['date'],
+                            'value': latest_val,
+                            'date': latest_date,
+                            'prev_value': prev_val if prev_val is not None else latest_val,
+                            'prev_date': prev_date if prev_date else latest_date,
                         }
-                except Exception:
-                    pass
         except Exception:
             pass
         return macro
