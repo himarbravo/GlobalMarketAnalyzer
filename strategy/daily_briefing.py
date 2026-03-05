@@ -513,36 +513,250 @@ def generate_briefing(market, yields, momentum_df, stock_prices, fred=None, outp
     w("  Usa el contexto de las secciones 2-4 para decidir con juicio.")
     w()
 
+    # ═══ SYSTEM ANALYTICS ═══
+    w("## 7. ANÁLISIS AVANZADO DEL SISTEMA")
+    w()
+    system_analytics = {}
+
+    # Try to compute O-U z-scores, graph contagion, etc.
+    try:
+        from core.graph_builder import GraphBuilder
+        from core.fundamental_filter import FundamentalFilter
+        from core.heat_engine import HeatEngine
+
+        gb = GraphBuilder()
+        gb.load_data()
+        gb.build()
+
+        ff = FundamentalFilter(gb.tickers)
+        ff.compute_all()
+
+        engine = HeatEngine(gb, ff)
+        engine.solve(calibrate=True)
+
+        # Z-scores: current mispricing vs O-U equilibrium
+        zscores = engine.z_scores
+        if zscores is not None and len(zscores) > 0:
+            latest_z = zscores[-1]
+            system_analytics['z_scores'] = {}
+            for i, t in enumerate(gb.tickers):
+                if i < len(latest_z):
+                    system_analytics['z_scores'][t] = float(latest_z[i])
+            w("### Z-Scores O-U (desviación del equilibrio)")
+            sorted_z = sorted(system_analytics['z_scores'].items(), key=lambda x: abs(x[1]), reverse=True)
+            for t, z in sorted_z[:15]:
+                emoji = "🔴" if abs(z) > 2 else ("🟡" if abs(z) > 1 else "🟢")
+                direction = "SOBRECOMPRADO" if z > 0 else "SOBREVENDIDO"
+                w(f"  {emoji} {t:<8} z={z:>+5.2f} → {direction}")
+            w()
+            w("  INTERPRETACIÓN: z-scores miden cuánto se desvía un activo de su equilibrio O-U.")
+            w("  |z| > 2 = extremo, tendencia probable a revertir en 5-20 días.")
+            w("  |z| > 3 = MUY extremo, alta probabilidad de reversión si no hay shock estructural.")
+            w()
+
+        # Refuge signal from engine
+        if hasattr(engine, 'refuge_signal') and engine.refuge_signal is not None:
+            rs = float(engine.refuge_signal[-1]) if len(engine.refuge_signal) > 0 else 0
+            system_analytics['refuge_signal'] = rs
+            w(f"### Señal de refugio del modelo: {rs:+.2f}")
+            if rs > 0.5:
+                w("  → Modelo sugiere SALIR de equity (capital fluyendo a refugio)")
+            elif rs < -0.5:
+                w("  → Modelo sugiere ENTRAR en equity (capital fluyendo a riesgo)")
+            else:
+                w("  → Señal neutra, sin flujo claro")
+            w()
+
+        # Calibrated parameters
+        system_analytics['alpha'] = engine.alpha_k.tolist() if hasattr(engine, 'alpha_k') else []
+        system_analytics['gamma'] = float(engine.gamma) if hasattr(engine, 'gamma') else 1.0
+        system_analytics['s'] = float(gb.s) if hasattr(gb, 's') else 0.5
+
+        w(f"### Parámetros calibrados")
+        w(f"  s (exponente fraccional): {system_analytics['s']:.3f}")
+        w(f"    → s≈0.5 = grafo eficiente, s→1 = difusión lenta (estrés)")
+        w(f"  γ (inercia): {system_analytics['gamma']:.1f}")
+        w(f"    → γ=1 = O-U puro, γ>5 = tendencias fuertes (momentum)")
+        w()
+
+        # O-U reversion probabilities for top stocks
+        if momentum_df is not None:
+            w("### Probabilidad de reversión O-U (top stocks)")
+            for i, t in enumerate(gb.tickers):
+                if t in (momentum_df['ticker'].tolist()[:10] if momentum_df is not None else []):
+                    try:
+                        prob = engine.compute_probability(i, horizon=5)
+                        if prob:
+                            system_analytics[f'prob_{t}'] = prob
+                            w(f"  {t}: P(revert)={prob.get('p_revert',0):.0%}, P(continue)={prob.get('p_continue',0):.0%}, E[ret]={prob.get('expected_return',0):+.1%}")
+                    except Exception:
+                        pass
+            w()
+            w("  INTERPRETACIÓN: basado en el proceso O-U, probabilidad de que el")
+            w("  activo revierta a equilibrio (revert) o siga en la dirección actual.")
+            w()
+
+    except Exception as e:
+        w(f"  ⚠️ Analytics avanzadas no disponibles: {str(e)[:100]}")
+        w()
+
+    # Reversibility analysis
+    try:
+        from core.reversibility import compute_von_neumann_entropy, compute_sector_correlations
+        from core.graph_builder import GraphBuilder
+
+        gb = GraphBuilder()
+        gb.load_data()
+        returns = gb.returns if hasattr(gb, 'returns') else None
+
+        if returns is not None and len(returns) > 60:
+            # Von Neumann entropy (structural break detection)
+            corr = np.corrcoef(returns[-60:].T)
+            eigvals = np.linalg.eigvalsh(corr)
+            eigvals = eigvals[eigvals > 1e-10]
+            entropy = compute_von_neumann_entropy(eigvals)
+            system_analytics['entropy'] = float(entropy)
+
+            w("### Reversibilidad (entropía de Von Neumann)")
+            w(f"  Entropía actual: {entropy:.3f}")
+            if entropy < 0.3:
+                w("  → BAJA entropía = estructura muy definida (pocos modos dominan)")
+                w("  → Posible contagio sistémico: todos se mueven juntos")
+            elif entropy > 0.7:
+                w("  → ALTA entropía = diversificación real, activos desacoplados")
+                w("  → Mercado sano, buen momento para stock picking")
+            else:
+                w("  → Entropía media = estructura parcial, some contagion")
+            w()
+
+    except Exception as e:
+        w(f"  ⚠️ Reversibilidad no disponible: {str(e)[:80]}")
+        w()
+
     # ═══ LLM PROMPT ═══
-    w("## 7. PROMPT PARA LLM")
+    w("## 8. PROMPT PARA LLM (copiar completo a Gemini)")
     w("```")
-    w("Soy un inversor retail con la siguiente cartera y datos de mercado.")
-    w("Necesito tu análisis experto con sentido común, no reglas mecánicas.")
+    w("Eres un analista de mercados experto. Necesito tu análisis con sentido")
+    w("común sobre la situación actual. NO quiero reglas mecánicas — quiero")
+    w("tu criterio humano basado en estos datos de mi sistema cuantitativo.")
     w()
-    w("DATOS DE HOY:")
+    w("════════════════════════════════════════")
+    w("DATOS DE MERCADO HOY")
+    w("════════════════════════════════════════")
+    # Market data
+    for tk in ['SPY', 'QQQ', 'IWM', 'TLT', 'SHY', 'GLD', 'UUP']:
+        if tk in market:
+            m = market[tk]
+            w(f"  {tk} ({m['desc']}): ${m['price']:.2f}, 1d:{m['chg_1d']:+.1%}, 5d:{m['chg_5d']:+.1%}, 20d:{m['chg_20d']:+.1%}")
+    w()
     if '^VIX' in market:
-        w(f"  VIX: {market['^VIX']['price']:.1f} (MA20: {market['^VIX']['ma20']:.1f})")
-    if '^TNX' in market:
-        w(f"  Yield 10Y: {market['^TNX']['price']:.2f}% ({market['^TNX']['chg_20d']:+.2f}% 20d)")
-    if 'TLT' in market:
-        w(f"  TLT (bonos): {market['TLT']['chg_20d']:+.1%} 20d")
-    if 'GLD' in market:
-        w(f"  GLD (oro): {market['GLD']['chg_20d']:+.1%} 20d")
-    if 'SPY' in market:
-        w(f"  SPY: {market['SPY']['chg_20d']:+.1%} 20d")
+        v = market['^VIX']
+        w(f"  VIX: {v['price']:.1f} (MA20:{v['ma20']:.1f}, MA50:{v['ma50']:.1f}, 1d:{v['chg_1d']:+.1%}, 5d:{v['chg_5d']:+.1%})")
     w()
-    w(f"MI DIAGNÓSTICO: {crisis}")
+
+    # Yields
+    w("CURVA DE TIPOS:")
+    if yields:
+        for label, ydata in sorted(yields.items(), key=lambda x: {'3M':0,'5Y':1,'10Y':2,'30Y':3}.get(x[0],4)):
+            w(f"  {label}: {ydata['yield']:.2f}% (1w:{ydata['chg_1w']:+.2f}%, 1m:{ydata['chg_1m']:+.2f}%)")
+        if '10Y' in yields and '3M' in yields:
+            w(f"  Spread 10Y-3M: {yields['10Y']['yield'] - yields['3M']['yield']:+.2f}%")
     w()
+
+    # FRED
+    if fred:
+        w("INDICADORES MACRO (FRED):")
+        for code, fdata in fred.items():
+            chg = fdata['value'] - fdata['prev_value']
+            w(f"  {fdata['name']}: {fdata['value']:.2f} ({'↑' if chg > 0 else '↓'}{abs(chg):.2f} vs prev)")
+        w()
+
+    # System analytics
+    w("════════════════════════════════════════")
+    w("ANÁLISIS DE MI SISTEMA CUANTITATIVO")
+    w("(modelo Ornstein-Uhlenbeck en grafo fraccional L^s)")
+    w("════════════════════════════════════════")
+    w()
+
+    w(f"DIAGNÓSTICO AUTOMÁTICO: {crisis}")
+    w()
+
+    if 'refuge_signal' in system_analytics:
+        w(f"Señal de refugio del modelo O-U: {system_analytics['refuge_signal']:+.2f} (rango -1 a +1)")
+        w("  >0.5 = salir de equity, <-0.5 = entrar a equity, ~0 = neutral")
+    w()
+
+    if 'z_scores' in system_analytics:
+        w("Z-SCORES O-U (desviación del equilibrio, los más extremos):")
+        sorted_z = sorted(system_analytics['z_scores'].items(), key=lambda x: abs(x[1]), reverse=True)
+        for t, z in sorted_z[:10]:
+            w(f"  {t}: z={z:+.2f} ({'sobrecomprado' if z > 0 else 'sobrevendido'})")
+        w("  |z|>2 = probabilidad alta de reversión a equilibrio")
+    w()
+
+    if 's' in system_analytics:
+        w(f"Exponente fraccional del grafo (s): {system_analytics['s']:.3f}")
+        w("  s≈0.5 = difusión rápida (mercado eficiente), s→1 = difusión lenta (contagio)")
+    if 'gamma' in system_analytics:
+        w(f"Inercia calibrada (γ): {system_analytics['gamma']:.1f}")
+        w("  γ=1 = sin inercia, γ>5 = tendencias fuertes")
+    w()
+
+    if 'entropy' in system_analytics:
+        w(f"Entropía Von Neumann: {system_analytics['entropy']:.3f}")
+        w("  <0.3 = alta correlación (contagio sistémico)")
+        w("  >0.7 = activos independientes (mercado sano)")
+    w()
+
+    # Probabilities
+    prob_keys = [k for k in system_analytics if k.startswith('prob_')]
+    if prob_keys:
+        w("PROBABILIDADES O-U de reversión (horizonte 5 días):")
+        for k in prob_keys:
+            t = k.replace('prob_', '')
+            p = system_analytics[k]
+            w(f"  {t}: P(revert)={p.get('p_revert',0):.0%}, E[ret]={p.get('expected_return',0):+.1%}")
+    w()
+
+    # TOP 20 momentum
+    w("════════════════════════════════════════")
+    w("MI CARTERA: TOP 20 MOMENTUM (fundamentales)")
+    w("════════════════════════════════════════")
     if momentum_df is not None:
-        top5 = momentum_df.head(5)['ticker'].tolist()
-        w(f"MI CARTERA: {top5} (top 5 momentum por fundamentales)")
+        cols = momentum_df.columns.tolist()
+        for i, (_, row) in enumerate(momentum_df.iterrows()):
+            t = row['ticker']
+            s_val = row['momentum_score']
+            line = f"  {i+1}. {t} (score:{s_val:.0f}/5"
+            if 'rev_last_qoq' in cols:
+                line += f", rev:{row['rev_last_qoq']:+.0%}"
+            if 'eps_growth_total' in cols:
+                v = row['eps_growth_total']
+                if pd.notna(v):
+                    line += f", EPS:{v:+.0%}"
+            line += ")"
+            if t in stock_prices:
+                sp = stock_prices[t]
+                line += f" → ${sp['price']:.1f}, 20d:{sp['chg_20d']:+.1%}, from_high:{sp['from_high']:+.1%}, vol:{sp['vol_20d']:.0f}%"
+                if t in system_analytics.get('z_scores', {}):
+                    line += f", z={system_analytics['z_scores'][t]:+.2f}"
+            w(line)
     w()
-    w("PREGUNTAS:")
-    w("1. ¿Mi diagnóstico es correcto? ¿Qué riesgos no estoy viendo?")
-    w("2. ¿Es mejor refugiarme en TLT+GLD, solo GLD, cash, o mantener?")
-    w("3. ¿Qué precedente histórico se parece más a la situación actual?")
-    w("4. ¿Hay alguna empresa de mi cartera que sea especialmente vulnerable?")
-    w("5. ¿Cuál es el escenario más peligroso que podría ocurrir esta semana?")
+
+    w("════════════════════════════════════════")
+    w("PREGUNTAS")
+    w("════════════════════════════════════════")
+    w("1. ¿Mi diagnóstico automático es correcto? ¿Qué matices le faltan?")
+    w("2. Dado los yields, la curva, y la inflación: ¿TLT es buen refugio HOY o debería usar GLD/cash?")
+    w("3. ¿Qué precedente histórico se parece más a la combinación actual de señales?")
+    w("4. De mi TOP 20 momentum, ¿alguna empresa es especialmente VULNERABLE al régimen actual?")
+    w("   (por ejemplo, ¿alguna depende mucho de China, o tiene mucha deuda, o sus márgenes están en riesgo?)")
+    w("5. Los z-scores muestran activos sobrecomprados/sobrevendidos según mi modelo O-U.")
+    w("   ¿Esas desviaciones son oportunidades reales o trampas de valor?")
+    w("6. ¿Cuál es el escenario MÁS PELIGROSO que podría materializar esta semana?")
+    w("7. Si tuvieras que elegir SOLO 5 acciones de mi TOP 20 para las próximas 4 semanas,")
+    w("   ¿cuáles elegirías y por qué?")
+    w("8. ¿Hay algún indicador que contradiga al resto? ¿Dónde está la señal más débil?")
     w("```")
     w()
 
