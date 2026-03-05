@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GlobalMarketAnalyzer — Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #1c2333;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --green: #3fb950;
+            --yellow: #d29922;
+            --orange: #db6d28;
+            --red: #f85149;
+            --blue: #58a6ff;
+            --purple: #bc8cff;
+            --gold: #e3b341;
+            --accent-gradient: linear-gradient(135deg, #58a6ff, #bc8cff);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .regime-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .regime-calm { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+        .regime-normal { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
+        .regime-stress { background: rgba(219,109,40,0.15); color: var(--orange); border: 1px solid rgba(219,109,40,0.3); }
+        .regime-panic { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            transition: all 0.2s;
+        }
+
+        .btn:hover { border-color: var(--blue); color: var(--blue); }
+        .btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+        .btn-primary:hover { opacity: 0.85; }
+
+        .timestamp { font-size: 12px; color: var(--text-muted); }
+
+        /* ── Dashboard Grid ── */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: auto auto auto;
+            gap: 16px;
+            padding: 20px 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: border-color 0.2s;
+        }
+
+        .card:hover { border-color: rgba(88,166,255,0.3); }
+
+        .card-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* ── VIX Card ── */
+        .vix-card { grid-column: 1; }
+        .vix-big {
+            font-size: 48px;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+        .vix-detail {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+        .chart-container {
+            height: 160px;
+            margin-top: 12px;
+        }
+
+        /* ── Yields Card ── */
+        .yields-card { grid-column: 2; }
+        .yield-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(48,54,61,0.5);
+        }
+        .yield-row:last-child { border: none; }
+        .yield-label { font-size: 14px; font-weight: 500; }
+        .yield-value { font-size: 14px; font-weight: 600; }
+        .yield-change { font-size: 12px; margin-left: 8px; }
+
+        /* ── Regime Card ── */
+        .regime-card { grid-column: 3; }
+        .crisis-type {
+            font-size: 15px;
+            font-weight: 600;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        .refuge-rec {
+            padding: 12px;
+            background: rgba(88,166,255,0.08);
+            border-radius: 8px;
+            border: 1px solid rgba(88,166,255,0.2);
+            margin-bottom: 12px;
+        }
+        .refuge-rec-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--blue);
+            margin-bottom: 6px;
+        }
+        .refuge-rec-text {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .signal-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 13px;
+        }
+        .signal-label { color: var(--text-secondary); }
+        .signal-value { font-weight: 600; }
+
+        /* ── Instruments ── */
+        .instruments-card { grid-column: 1 / 3; }
+        .instruments-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+        .instrument {
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .instrument-ticker {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .instrument-name {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .instrument-price {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .instrument-changes {
+            display: flex;
+            gap: 8px;
+            font-size: 11px;
+        }
+        .chg-tag {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .chg-pos { background: rgba(63,185,80,0.15); color: var(--green); }
+        .chg-neg { background: rgba(248,81,73,0.15); color: var(--red); }
+
+        /* ── FRED ── */
+        .fred-card { grid-column: 3; }
+        .fred-item {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(48,54,61,0.5);
+        }
+        .fred-item:last-child { border: none; }
+        .fred-name { font-size: 12px; color: var(--text-secondary); }
+        .fred-value-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 2px;
+        }
+        .fred-val { font-size: 15px; font-weight: 600; }
+        .fred-chg { font-size: 12px; }
+
+        /* ── Stocks Table ── */
+        .stocks-card { grid-column: 1 / -1; }
+        .stocks-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .stocks-table th {
+            text-align: left;
+            padding: 8px 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            user-select: none;
+        }
+        .stocks-table th:hover { color: var(--blue); }
+        .stocks-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(48,54,61,0.3);
+        }
+        .stocks-table tr:hover td { background: rgba(88,166,255,0.03); }
+        .score-bar {
+            display: inline-flex;
+            gap: 2px;
+        }
+        .score-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            background: var(--border);
+        }
+        .score-dot.active { background: var(--green); }
+        .score-dot.active.high { background: var(--blue); }
+
+        /* ── Prompt Card ── */
+        .prompt-card { grid-column: 1 / -1; }
+        .prompt-text {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+        }
+
+        .copy-feedback {
+            display: none;
+            color: var(--green);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .positive { color: var(--green); }
+        .negative { color: var(--red); }
+        .neutral { color: var(--text-secondary); }
+
+        /* ── Loading ── */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 12px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Responsive ── */
+        @media (max-width: 1200px) {
+            .dashboard { grid-template-columns: 1fr 1fr; }
+            .instruments-card { grid-column: 1 / -1; }
+            .stocks-card { grid-column: 1 / -1; }
+            .prompt-card { grid-column: 1 / -1; }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard { grid-template-columns: 1fr; }
+            .vix-card, .yields-card, .regime-card,
+            .instruments-card, .fred-card { grid-column: 1; }
+            .instruments-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <h1>📊 GlobalMarketAnalyzer</h1>
+            <span id="regime-badge" class="regime-badge regime-normal">—</span>
+        </div>
+        <div class="header-right">
+            <span id="timestamp" class="timestamp">—</span>
+            <button class="btn" onclick="refreshData()">⟳ Refresh</button>
+        </div>
+    </header>
+
+    <!-- Dashboard -->
+    <main class="dashboard" id="dashboard">
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            Cargando datos de mercado...
+        </div>
+    </main>
+
+    <script>
+    let DATA = null;
+
+    async function fetchData(forceRefresh = false) {
+        const url = forceRefresh ? '/api/refresh' : '/api/snapshot';
+        const resp = await fetch(url);
+        DATA = await resp.json();
+        renderDashboard();
+    }
+
+    function refreshData() {
+        document.getElementById('dashboard').innerHTML = `
+            <div class="loading"><div class="spinner"></div> Actualizando datos...</div>`;
+        fetchData(true);
+    }
+
+    function chgClass(val) {
+        return val > 0.001 ? 'positive' : (val < -0.001 ? 'negative' : 'neutral');
+    }
+
+    function chgTag(val, label) {
+        const cls = val > 0.001 ? 'chg-pos' : (val < -0.001 ? 'chg-neg' : '');
+        return `<span class="chg-tag ${cls}">${label}: ${(val*100).toFixed(1)}%</span>`;
+    }
+
+    function fmtPrice(p) {
+        if (p > 10000) return p.toLocaleString('en-US', {minimumFractionDigits: 0});
+        if (p > 100) return p.toFixed(1);
+        return p.toFixed(2);
+    }
+
+    function scoreBar(score, max=6) {
+        let dots = '';
+        for (let i = 0; i < max; i++) {
+            const active = i < score ? 'active' : '';
+            const high = score >= 5 ? 'high' : '';
+            dots += `<span class="score-dot ${active} ${high}"></span>`;
+        }
+        return `<span class="score-bar">${dots}</span>`;
+    }
+
+    function renderDashboard() {
+        if (!DATA) return;
+        const d = DATA;
+        const m = d.market || {};
+        const vix = m['^VIX'] || {};
+        const regime = d.regime || {};
+
+        // Update header
+        const vixState = regime.vix_state || 'normal';
+        const stateLabels = {calm:'🟢 CALMA', normal:'🟡 NORMAL', stress:'🟠 ESTRÉS', panic:'🔴 PÁNICO'};
+        const badge = document.getElementById('regime-badge');
+        badge.textContent = stateLabels[vixState] || vixState;
+        badge.className = `regime-badge regime-${vixState}`;
+        document.getElementById('timestamp').textContent = new Date(d.timestamp).toLocaleString('es-ES');
+
+        // Crisis info
+        const crisisLabels = {
+            none: {text: 'Sin estrés', cls: 'regime-calm'},
+            panic: {text: '🚨 Crisis de Pánico', cls: 'regime-panic'},
+            inflation: {text: '🚨 Crisis de Inflación', cls: 'regime-stress'},
+            geopolitical: {text: '🚨 Crisis Geopolítica', cls: 'regime-stress'},
+            unclassified: {text: '⚠️ Estrés sin clasificar', cls: 'regime-normal'},
+        };
+        const crisis = crisisLabels[regime.crisis_type] || crisisLabels.unclassified;
+
+        // Build instruments
+        const instruments = ['SPY','QQQ','IWM','TLT','SHY','GLD','UUP'].map(tk => {
+            const inst = m[tk];
+            if (!inst) return '';
+            return `<div class="instrument">
+                <div class="instrument-ticker">${tk}</div>
+                <div class="instrument-name">${inst.desc}</div>
+                <div class="instrument-price">$${fmtPrice(inst.price)}</div>
+                <div class="instrument-changes">
+                    ${chgTag(inst.chg_1d, '1d')}
+                    ${chgTag(inst.chg_5d, '5d')}
+                    ${chgTag(inst.chg_20d, '20d')}
+                </div>
+            </div>`;
+        }).join('');
+
+        // Yields
+        const yields = d.yields || {};
+        const yieldOrder = ['3M','5Y','10Y','30Y'];
+        let yieldRows = '';
+        let spread = '';
+        yieldOrder.forEach(label => {
+            const y = yields[label];
+            if (!y) return;
+            const arrow = y.chg_1w > 0.05 ? '↑' : (y.chg_1w < -0.05 ? '↓' : '→');
+            yieldRows += `<div class="yield-row">
+                <span class="yield-label">${label}</span>
+                <span>
+                    <span class="yield-value">${y.yield.toFixed(2)}%</span>
+                    <span class="yield-change ${chgClass(y.chg_1w)}">${arrow} ${y.chg_1w > 0 ? '+' : ''}${y.chg_1w.toFixed(2)}%</span>
+                </span>
+            </div>`;
+        });
+        if (yields['10Y'] && yields['3M']) {
+            const sp = yields['10Y'].yield - yields['3M'].yield;
+            spread = `<div class="yield-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+                <span class="yield-label" style="font-weight:600">Spread 10Y-3M</span>
+                <span class="yield-value ${sp < 0 ? 'negative' : 'positive'}">${sp > 0 ? '+' : ''}${sp.toFixed(2)}%</span>
+            </div>`;
+        }
+
+        // FRED
+        const fred = d.fred || {};
+        let fredItems = '';
+        Object.values(fred).forEach(f => {
+            const chg = f.value - f.prev_value;
+            const arrow = chg > 0 ? '↑' : (chg < 0 ? '↓' : '→');
+            fredItems += `<div class="fred-item">
+                <div class="fred-name">${f.name}</div>
+                <div class="fred-value-row">
+                    <span class="fred-val">${f.value.toFixed(2)}</span>
+                    <span class="fred-chg ${chgClass(chg)}">${arrow} ${Math.abs(chg).toFixed(2)}</span>
+                </div>
+            </div>`;
+        });
+
+        // Signals
+        const ref = regime.refuge || {};
+        let signalItems = '';
+        signalItems += `<div class="signal-item"><span class="signal-label">TLT viable</span><span class="signal-value ${ref.tlt_viable ? 'positive' : 'negative'}">${ref.tlt_viable ? '✅ Sí' : '❌ No'}</span></div>`;
+        signalItems += `<div class="signal-item"><span class="signal-label">GLD viable</span><span class="signal-value ${ref.gld_viable ? 'positive' : 'negative'}">${ref.gld_viable ? '✅ Sí' : '❌ No'}</span></div>`;
+        signalItems += `<div class="signal-item"><span class="signal-label">Solo cash</span><span class="signal-value ${ref.cash_only ? 'negative' : 'positive'}">${ref.cash_only ? '⚠️ Sí' : '🟢 No'}</span></div>`;
+
+        // Stocks table
+        const stocks = d.stocks || [];
+        let stockRows = '';
+        stocks.forEach((s, i) => {
+            const eps = s.eps_growth != null ? `${(s.eps_growth*100).toFixed(0)}%` : '—';
+            stockRows += `<tr>
+                <td style="font-weight:600">${i+1}</td>
+                <td style="font-weight:700;color:var(--blue)">${s.ticker}</td>
+                <td>${scoreBar(s.score)}</td>
+                <td class="${chgClass(s.rev_qoq)}">${(s.rev_qoq*100).toFixed(0)}%</td>
+                <td>${eps}</td>
+                <td>${s.price ? '$'+fmtPrice(s.price) : '—'}</td>
+                <td class="${chgClass(s.chg_1d || 0)}">${s.chg_1d != null ? (s.chg_1d*100).toFixed(1)+'%' : '—'}</td>
+                <td class="${chgClass(s.chg_20d || 0)}">${s.chg_20d != null ? (s.chg_20d*100).toFixed(1)+'%' : '—'}</td>
+                <td class="${(s.from_high || 0) < -0.15 ? 'negative' : 'neutral'}">${s.from_high != null ? (s.from_high*100).toFixed(1)+'%' : '—'}</td>
+                <td>${s.vol_20d ? s.vol_20d.toFixed(0)+'%' : '—'}</td>
+            </tr>`;
+        });
+
+        // Render
+        document.getElementById('dashboard').innerHTML = `
+            <!-- Row 1: VIX | Yields | Regime -->
+            <div class="card vix-card">
+                <div class="card-title">📈 VIX Gate</div>
+                <div class="vix-big ${vixState === 'stress' || vixState === 'panic' ? 'negative' : (vixState === 'calm' ? 'positive' : 'neutral')}">${vix.price ? vix.price.toFixed(1) : '—'}</div>
+                <div class="vix-detail">
+                    MA20: ${vix.ma20 ? vix.ma20.toFixed(1) : '—'} · MA50: ${vix.ma50 ? vix.ma50.toFixed(1) : '—'}
+                    <br>1d: <span class="${chgClass(vix.chg_1d)}">${vix.chg_1d ? (vix.chg_1d*100).toFixed(1) : 0}%</span>
+                    · 5d: <span class="${chgClass(vix.chg_5d)}">${vix.chg_5d ? (vix.chg_5d*100).toFixed(1) : 0}%</span>
+                    · 20d: <span class="${chgClass(vix.chg_20d)}">${vix.chg_20d ? (vix.chg_20d*100).toFixed(1) : 0}%</span>
+                </div>
+                <div class="chart-container"><canvas id="vix-chart"></canvas></div>
+            </div>
+
+            <div class="card yields-card">
+                <div class="card-title">📉 Curva de Tipos</div>
+                ${yieldRows}
+                ${spread}
+                <div class="chart-container" style="margin-top:12px"><canvas id="yield-chart"></canvas></div>
+            </div>
+
+            <div class="card regime-card">
+                <div class="card-title">🎯 Diagnóstico</div>
+                <div class="crisis-type ${crisis.cls}">${crisis.text}</div>
+                <div class="refuge-rec">
+                    <div class="refuge-rec-title">Refugio recomendado</div>
+                    <div class="refuge-rec-text">${regime.recommended_refuge || '—'}</div>
+                </div>
+                ${signalItems}
+            </div>
+
+            <!-- Row 2: Instruments | FRED -->
+            <div class="card instruments-card">
+                <div class="card-title">🏦 Instrumentos</div>
+                <div class="instruments-grid">${instruments}</div>
+            </div>
+
+            <div class="card fred-card">
+                <div class="card-title">🏛️ Macro (FRED)</div>
+                ${fredItems || '<div style="color:var(--text-muted)">Sin datos FRED</div>'}
+            </div>
+
+            <!-- Row 3: Stocks -->
+            <div class="card stocks-card">
+                <div class="card-title">🏆 Top ${stocks.length} Momentum</div>
+                <table class="stocks-table">
+                    <thead><tr>
+                        <th>#</th><th>Ticker</th><th>Score</th><th>Rev QoQ</th>
+                        <th>EPS</th><th>Precio</th><th>1d</th><th>20d</th>
+                        <th>vs Max</th><th>Vol</th>
+                    </tr></thead>
+                    <tbody>${stockRows}</tbody>
+                </table>
+            </div>
+
+            <!-- Row 4: Prompt -->
+            <div class="card prompt-card">
+                <div class="card-title" style="justify-content:space-between">
+                    <span>🤖 Prompt para Gemini</span>
+                    <div>
+                        <span id="copy-feedback" class="copy-feedback">✅ Copiado</span>
+                        <button class="btn btn-primary" onclick="copyPrompt()">📋 Copiar prompt</button>
+                    </div>
+                </div>
+                <div class="prompt-text" id="prompt-text">Cargando prompt...</div>
+            </div>
+        `;
+
+        // Charts
+        renderVixChart(vix);
+        renderYieldChart(yields);
+        loadPrompt();
+    }
+
+    function renderVixChart(vix) {
+        const ctx = document.getElementById('vix-chart');
+        if (!ctx || !vix.history) return;
+        const labels = vix.dates || vix.history.map((_, i) => i);
+        const ma20 = vix.history.map((_, i, arr) => {
+            if (i < 19) return null;
+            return arr.slice(i-19, i+1).reduce((a,b) => a+b, 0) / 20;
+        });
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels.map(d => typeof d === 'string' ? d.slice(5) : d),
+                datasets: [
+                    { label: 'VIX', data: vix.history, borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.1)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.3 },
+                    { label: 'MA20', data: ma20, borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, borderDash: [5,3] },
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: { grid: { color: 'rgba(48,54,61,0.5)' }, ticks: { color: '#8b949e', font: {size: 10} } }
+                }
+            }
+        });
+    }
+
+    function renderYieldChart(yields) {
+        const ctx = document.getElementById('yield-chart');
+        if (!ctx) return;
+        const labels = ['3M', '5Y', '10Y', '30Y'];
+        const values = labels.map(l => yields[l] ? yields[l].yield : null);
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Yield Curve',
+                    data: values,
+                    borderColor: '#e3b341',
+                    backgroundColor: 'rgba(227,179,65,0.1)',
+                    fill: true,
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#e3b341',
+                    tension: 0.3,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#8b949e' } },
+                    y: { grid: { color: 'rgba(48,54,61,0.5)' }, ticks: { color: '#8b949e', callback: v => v.toFixed(1)+'%' } }
+                }
+            }
+        });
+    }
+
+    async function loadPrompt() {
+        try {
+            const resp = await fetch('/api/prompt');
+            const text = await resp.text();
+            const el = document.getElementById('prompt-text');
+            if (el) el.textContent = text;
+        } catch (e) {
+            const el = document.getElementById('prompt-text');
+            if (el) el.textContent = 'Error cargando prompt';
+        }
+    }
+
+    function copyPrompt() {
+        const text = document.getElementById('prompt-text').textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            const fb = document.getElementById('copy-feedback');
+            fb.style.display = 'inline';
+            setTimeout(() => fb.style.display = 'none', 2000);
+        });
+    }
+
+    // Boot
+    fetchData();
+    </script>
+</body>
+</html>
