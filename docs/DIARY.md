@@ -1,5 +1,46 @@
 # Development Diary — GlobalMarketAnalyzer
 
+## 2026-03-05 — VIX Gate Strategy: Deep Research
+
+### Descubrimiento: VIX Gate como market timing
+Estrategia simple: cuando VIX sube → refugio (TLT+GLD), cuando VIX baja → SPY.
+
+### Backtest 21 años (2004-2026) — 19 periodos históricos
+- Gate gana en **14/19 periodos** (74%) por retorno
+- Gate gana en **14/19 periodos** (74%) por menor drawdown
+- Pierde en V-recoveries (COVID recovery, post-GFC) cuando VIX sigue alto pero mercado ya sube
+
+### Grid Search: VIX fijo vs relativo
+
+| Método | Mejor regla | Ret/año | Sharpe | MaxDD | Switches |
+|---|---|---|---|---|---|
+| Fijo | VIX > 18 | +25.5% | 2.11 | -25.9% | 315 |
+| Percentil 60d | p60 | +39.1% | 2.85 | -13.8% | 579 |
+| Media móvil | VIX > MA20 | +48.9% | 3.52 | -13.1% | 819 |
+
+Histéresis (>19/<18) reduce switches 315→195 con Sharpe 1.78 incluyendo costes.
+
+### ⚠️ Talones de Aquiles identificados
+1. **Whipsaw**: MA20 genera 39 switches/año → costes ~4%/año
+2. **Flash crash**: VIX sube DESPUÉS de la caída, ya es tarde
+3. **TLT falla en inflación**: en 2022 SPY -24% y TLT -31%, refugio no protegió
+4. **Overfitting**: elegimos MA20 porque da mejor Sharpe en backtest
+5. **Delay de ejecución**: ves VIX al cierre, ejecutas al open → pierdes edge
+6. **"Too good to be true"**: Sharpe 3.52 con regla simple → sospechoso
+
+### Estimación realista ajustada
+- Backtest bruto: Sharpe 2.0-3.5
+- Después de costes, slippage, delay: **Sharpe 1.0-1.5 probable**
+- Sigue siendo bueno (top 25% hedge funds) pero no mágico
+
+### Archivos creados
+- `strategy/backtest.py` — backtest con variantes VIX
+- `strategy/select_stocks.py` — ranking trimestral momentum
+- `strategy/daily_signal.py` — señal diaria + Telegram bot
+- `strategy/walk_forward_backtest.py` — test en 19 periodos históricos
+
+---
+
 ## 2026-03-05 — Conclusiones Críticas: Z-Scores y Alpha
 
 ### ∂f_i/∂t integrado en la ecuación O-U

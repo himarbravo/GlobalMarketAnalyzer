@@ -1,44 +1,79 @@
-# 🏆 Estrategia Ganadora: Momentum + VIX Gate
+# 🏆 Estrategia: VIX Gate + Momentum
 
-## Resultados (backtest 5 años, 2020-2026)
+# Uso rápido
+```bash
+# Señal de hoy
+python strategy/daily_signal.py
+# Backtest completo
+python strategy/backtest.py --vix 20 --top 10
+# Actualizar portfolio (tras earnings)
+python strategy/select_stocks.py --top 10
+# Test en 19 periodos históricos
+python strategy/walk_forward_backtest.py
+# Cron para Telegram (21:30 CET, L-V)
+# 30 21 * * 1-5 python strategy/daily_signal.py --telegram
+```
 
-| Estrategia | Ret total | Sharpe | MaxDD | 100€→ |
-|---|---|---|---|---|
-| B&H SPY | +131% | 0.76 | -33.7% | 231€ |
-| Momentum puro (TOP 10) | +333% | 1.02 | -36.2% | 433€ |
-| **Momentum + VIX>20** ⭐ | **+755%** | **2.52** | **-19.4%** | **855€** |
-
-## Regla (así de simple)
+## Regla
 
 ```
-Cada día a las 21:30 CET:
-  - Si VIX < 20 → comprar TOP 10 momentum stocks (equal weight)
-  - Si VIX ≥ 20 → todo a 50% TLT + 50% GLD
+Cada día:
+  - Si VIX_hoy > media(VIX últimos 20 días) → REFUGIO (50% TLT + 50% GLD)
+  - Si VIX_hoy ≤ media(VIX últimos 20 días) → MOMENTUM (SPY o TOP 10 stocks)
 
 Cada trimestre (tras earnings):
   - Recalcular momentum scores → actualizar TOP 10
 ```
 
+## Resultados (21 años, 2004-2026)
+
+### VIX Fijo vs Relativo
+
+| Método | Mejor regla | Ret/año | Sharpe | MaxDD | Switches |
+|---|---|---|---|---|---|
+| B&H SPY | — | +10.6% | 0.56 | -55.2% | 0 |
+| Fijo | VIX > 18 | +25.5% | 2.11 | -25.9% | 315 |
+| Percentil | p60 de 60d | +39.1% | 2.85 | -13.8% | 579 |
+| Media móvil | VIX > MA20 | +48.9% | 3.52 | -13.1% | 819 |
+
+### Por periodos (19 test periods, gate gana 14/19 = 74%)
+
+Gana en: GFC 2008, Euro debt, QE, China scare, Volmageddon, pre-COVID, COVID crash, 2022 bear, tariffs 2025  
+Pierde en: V-recoveries (post-GFC, COVID recovery, meme stocks)
+
+## ⚠️ Estimación realista
+
+```
+Backtest bruto (MA20):     +48.9%/año, Sharpe 3.52
+  - Costes transacción:     -4.0%/año (39 switches)
+  - Slippage + delay:       -2.0%/año
+  - Overfitting correction: ×0.7
+  ≈ Estimación realista:    ~18-25%/año, Sharpe 1.0-1.5
+```
+
+Comparable a un **buen fondo activo** (top 25%) sin comisiones de gestión.
+
+## ⚠️ Debilidades conocidas
+
+1. **Whipsaw**: muchos switches en mercados laterales → costes
+2. **Flash crash**: VIX sube DESPUÉS de la caída, ya es tarde
+3. **TLT falla en inflación** (2022: TLT -31%)
+4. **Overfitting**: elegimos MA20 retroactivamente
+5. **Delay ejecución**: ves VIX al cierre, ejecutas al open
+6. **V-recoveries**: te pierdes el rebote si VIX sigue alto
+
 ## Scripts
 
 | Script | Descripción |
 |---|---|
-| `backtest.py` | Backtest completo 5 años con variantes de VIX threshold |
-| `select_stocks.py` | Calcula momentum scores y selecciona TOP N stocks |
-| `daily_signal.py` | Señal diaria: ¿momentum o refugio? (para cron/bot) |
+| `backtest.py` | Backtest con VIX fijo, variantes de threshold |
+| `select_stocks.py` | Ranking trimestral momentum desde Supabase |
+| `daily_signal.py` | Señal diaria + Telegram bot |
+| `walk_forward_backtest.py` | Test en 19 periodos históricos (2004-2026) |
 
-## Variantes testeadas
+## Próximos pasos
 
-| VIX Gate | Ret 5y | Sharpe | MaxDD | % en refugio |
-|---|---|---|---|---|
-| Sin gate (puro) | +333% | 1.02 | -36.2% | 0% |
-| **VIX > 20** ⭐ | **+755%** | **2.52** | -19.4% | 44% |
-| VIX > 25 | +793% | 2.18 | -20.5% | 22% |
-| VIX > 30 | +790% | 1.95 | -23.5% | 9% |
-
-## ⚠️ Advertencias
-
-1. **Look-ahead bias**: el backtest usa los TOP 10 de hoy retroactivamente
-2. **Sin costes de transacción**: ~1.2%/año en comisiones reales
-3. **Concentración**: 10 stocks = alto riesgo idiosincrático
-4. **Paper trading obligatorio**: mínimo 3-6 meses antes de dinero real
+- [ ] Paper trading 6 meses (señales diarias sin dinero real)
+- [ ] Walk-forward momentum stock selection (requiere más fundamentals data)
+- [ ] Testear alternativas de refugio (SHY, cash, TIPS)
+- [ ] Implementar banda de histéresis para reducir whipsaw
