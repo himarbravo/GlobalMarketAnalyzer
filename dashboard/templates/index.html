@@ -1199,22 +1199,65 @@
             signals += `<div class="signal-item"><span class="signal-label">Solo cash</span><span class="signal-value ${ref.cash_only ? 'negative' : 'positive'}">${ref.cash_only ? '⚠️ Sí' : '🟢 No'}</span></div>`;
 
             const stocks = d.stocks || [];
-            let stockRows = '';
-            stocks.forEach((s, i) => {
-                const eps = s.eps_growth != null ? `${(s.eps_growth * 100).toFixed(0)}%` : '—';
-                stockRows += `<tr>
-                <td style="font-weight:600">${i + 1}</td>
-                <td style="font-weight:700;color:var(--blue)">${s.ticker}</td>
-                <td>${scoreBar(s.score)}</td>
-                <td class="${chgClass(s.rev_qoq)}">${(s.rev_qoq * 100).toFixed(0)}%</td>
-                <td>${eps}</td>
-                <td>${s.price ? '$' + fmtPrice(s.price) : '—'}</td>
-                <td class="${chgClass(s.chg_1d || 0)}">${s.chg_1d != null ? (s.chg_1d * 100).toFixed(1) + '%' : '—'}</td>
-                <td class="${chgClass(s.chg_20d || 0)}">${s.chg_20d != null ? (s.chg_20d * 100).toFixed(1) + '%' : '—'}</td>
-                <td class="${(s.from_high || 0) < -0.15 ? 'negative' : 'neutral'}">${s.from_high != null ? (s.from_high * 100).toFixed(1) + '%' : '—'}</td>
-                <td>${s.vol_20d ? s.vol_20d.toFixed(0) + '%' : '—'}</td>
-            </tr>`;
-            });
+            const sectors = d.sectors || {};
+
+            // Sector emoji mapping
+            const sectorEmoji = {
+                'Technology': '💻', 'Financial Services': '🏦',
+                'Healthcare': '🏥', 'Consumer Cyclical': '🛍️',
+                'Consumer Defensive': '🛒', 'Energy': '⛽',
+                'Industrials': '🏗️', 'Communication Services': '📡',
+                'Basic Materials': '⛏️', 'Real Estate': '🏠', 'Utilities': '⚡'
+            };
+
+            function renderSectorStocks() {
+                const sectorNames = Object.keys(sectors).sort();
+                if (sectorNames.length === 0) return '<div style="color:var(--text-muted)">Sin datos de sectores</div>';
+                return sectorNames.map((sec, si) => {
+                    const stks = sectors[sec] || [];
+                    const emoji = sectorEmoji[sec] || '📊';
+                    const top5 = stks.slice(0, 5);
+                    const rest = stks.slice(5);
+                    const rows = (list, offset) => list.map((s, i) => {
+                        const eps = s.eps_growth != null ? `${(s.eps_growth * 100).toFixed(0)}%` : '—';
+                        return `<tr>
+                            <td style="font-weight:600">${offset + i + 1}</td>
+                            <td style="font-weight:700;color:var(--blue)" title="${s.industry || ''}">${s.ticker}</td>
+                            <td>${scoreBar(s.score)}</td>
+                            <td class="${chgClass(s.rev_qoq)}">${(s.rev_qoq * 100).toFixed(0)}%</td>
+                            <td>${eps}</td>
+                            <td>${s.price ? '$' + fmtPrice(s.price) : '—'}</td>
+                            <td class="${chgClass(s.chg_20d || 0)}">${s.chg_20d != null ? (s.chg_20d * 100).toFixed(1) + '%' : '—'}</td>
+                            <td>${s.vol_20d ? s.vol_20d.toFixed(0) + '%' : '—'}</td>
+                        </tr>`;
+                    }).join('');
+
+                    return `
+                    <div class="sector-group">
+                        <div class="sector-header" onclick="toggleSector(${si})">
+                            <span>${emoji} ${sec} <span style="color:var(--text-muted);font-weight:400">(${stks.length})</span></span>
+                            <span class="health-alert-toggle" id="stoggle-${si}">▶</span>
+                        </div>
+                        <div class="sector-body" id="sbody-${si}">
+                            <table class="stocks-table">
+                                <thead><tr>
+                                    <th>#</th><th>Ticker</th><th>Score</th><th>Rev</th><th>EPS</th>
+                                    <th>Precio</th><th>20d</th><th>Vol</th>
+                                </tr></thead>
+                                <tbody>${rows(top5, 0)}</tbody>
+                            </table>
+                            ${rest.length > 0 ? `
+                                <div class="sector-expand" id="sexpand-${si}" onclick="expandSector(${si})">
+                                    Ver ${rest.length} más ▼
+                                </div>
+                                <div class="sector-rest" id="srest-${si}" style="display:none">
+                                    <table class="stocks-table"><tbody>${rows(rest, 5)}</tbody></table>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+            }
 
             document.getElementById('dashboard').innerHTML = `
             <div class="card vix-card">
@@ -1261,19 +1304,8 @@
             </div>
 
             <div class="card stocks-card">
-                <div class="card-title">🏆 Top ${stocks.length} Momentum ${infoBtn('MOMENTUM_SCORE')}</div>
-                <table class="stocks-table">
-                    <thead><tr>
-                        <th>#</th><th>Ticker</th>
-                        <th>Score ${infoBtn('MOMENTUM_SCORE')}</th>
-                        <th>Rev QoQ ${infoBtn('REV_QOQ')}</th>
-                        <th>EPS ${infoBtn('EPS')}</th>
-                        <th>Precio</th><th>1d</th><th>20d</th>
-                        <th>vs Max ${infoBtn('FROM_HIGH')}</th>
-                        <th>Vol ${infoBtn('VOL')}</th>
-                    </tr></thead>
-                    <tbody>${stockRows}</tbody>
-                </table>
+                <div class="card-title">🏆 Momentum por Sector ${infoBtn('MOMENTUM_SCORE')} <span style="color:var(--text-muted);font-size:0.8em">(Top 5/sector = ${stocks.length} acciones)</span></div>
+                ${renderSectorStocks()}
             </div>
 
             <div class="card prompt-card">
@@ -1344,6 +1376,30 @@
                         setTimeout(() => { f.style.display = 'none'; f.textContent = '✅ Copiado'; }, 2000);
                     });
                 });
+        }
+
+        function toggleSector(i) {
+            const body = document.getElementById('sbody-' + i);
+            const toggle = document.getElementById('stoggle-' + i);
+            if (body.classList.contains('open')) {
+                body.classList.remove('open');
+                toggle.textContent = '▶';
+            } else {
+                body.classList.add('open');
+                toggle.textContent = '▼';
+            }
+        }
+
+        function expandSector(i) {
+            const rest = document.getElementById('srest-' + i);
+            const btn = document.getElementById('sexpand-' + i);
+            if (rest.style.display === 'none') {
+                rest.style.display = 'block';
+                btn.textContent = 'Ocultar ▲';
+            } else {
+                rest.style.display = 'none';
+                btn.textContent = btn.textContent.replace('Ocultar ▲', 'Ver más ▼');
+            }
         }
 
         fetchData();

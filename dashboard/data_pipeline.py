@@ -178,23 +178,52 @@ class DashboardPipeline:
         return macro
 
     def fetch_momentum_ranking(self):
-        """Fetch TOP N momentum stocks with fundamentals."""
-        stocks = []
+        """Fetch momentum stocks with sector classification.
+        Returns (stocks_flat, sectors_grouped):
+        - stocks_flat: top 5 per sector = sector-neutral portfolio
+        - sectors_grouped: dict of sector → list of stocks (up to TOP_N)
+        """
+        import json
+
+        # Load sector map
+        sector_map = {}
+        sector_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'sector_map.json')
+        try:
+            with open(sector_path) as f:
+                sector_map = json.load(f)
+        except Exception:
+            pass
+
+        all_stocks = []
         try:
             from ml.fundamental_momentum import load_quarterly_data, compute_momentum_features
             qdf, _ = load_quarterly_data()
             mom = compute_momentum_features(qdf)
-            top = mom.nlargest(self.TOP_N, 'momentum_score')
 
-            # Fetch prices for each
-            for _, row in top.iterrows():
+            # Filter to classified stocks only (exclude ETFs)
+            classified = mom[mom['ticker'].isin(sector_map.keys())].copy()
+            classified = classified.sort_values('momentum_score', ascending=False)
+
+            # Fetch prices for top stocks per sector
+            seen_sectors = {}
+            for _, row in classified.iterrows():
                 ticker = row['ticker']
+                sec_info = sector_map.get(ticker, {})
+                sector = sec_info.get('sector', 'Unknown')
+
+                # Track how many per sector
+                seen_sectors[sector] = seen_sectors.get(sector, 0) + 1
+                if seen_sectors[sector] > self.TOP_N:  # max 20 per sector
+                    continue
+
                 stock = {
                     'ticker': ticker,
                     'score': float(row['momentum_score']),
                     'rev_qoq': float(row.get('rev_last_qoq', 0)),
                     'eps_growth': float(row.get('eps_growth_total', 0)) if pd.notna(row.get('eps_growth_total')) else None,
                     'roic_trend': float(row.get('roic_trend', 0)),
+                    'sector': sector,
+                    'industry': sec_info.get('industry', ''),
                 }
                 try:
                     h = yf.Ticker(ticker).history(period="3mo")
@@ -210,10 +239,28 @@ class DashboardPipeline:
                         })
                 except Exception:
                     pass
-                stocks.append(stock)
+                all_stocks.append(stock)
         except Exception:
             pass
-        return stocks
+
+        # Group by sector
+        sectors_grouped = {}
+        for s in all_stocks:
+            sec = s['sector']
+            if sec not in sectors_grouped:
+                sectors_grouped[sec] = []
+            sectors_grouped[sec].append(s)
+
+        # Sort each sector by score
+        for sec in sectors_grouped:
+            sectors_grouped[sec].sort(key=lambda x: x['score'], reverse=True)
+
+        # Flat list: top 5 per sector
+        stocks_flat = []
+        for sec, stocks in sorted(sectors_grouped.items()):
+            stocks_flat.extend(stocks[:5])
+
+        return stocks_flat, sectors_grouped
 
     def fetch_system_analytics(self):
         """Run core system analytics (O-U, graph, entropy)."""
@@ -783,7 +830,7 @@ class DashboardPipeline:
         health = self.compute_model_health(market)
 
         print("  → Momentum ranking...", flush=True)
-        stocks = self.fetch_momentum_ranking()
+        stocks, sectors = self.fetch_momentum_ranking()
 
         system_analytics = {}
         if include_system:
@@ -798,6 +845,7 @@ class DashboardPipeline:
             'regime': regime,
             'health': health,
             'stocks': stocks,
+            'sectors': sectors,
             'system_analytics': system_analytics,
         }
 
@@ -814,22 +862,29 @@ class DashboardPipeline:
 
     def to_json(self, snapshot=None):
         """Serialize snapshot to JSON-safe dict."""
+        import math
         s = snapshot or self._snapshot
         if not s:
             return {}
 
-        def clean(obj):
+        def _sanitize(obj):
+            """Recursively clean NaN/Inf and numpy types."""
+            if isinstance(obj, dict):
+                return {k: _sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize(v) for v in obj]
             if isinstance(obj, (np.floating, np.integer)):
-                return float(obj)
+                v = float(obj)
+                return None if (math.isnan(v) or math.isinf(v)) else v
+            if isinstance(obj, float):
+                return None if (math.isnan(obj) or math.isinf(obj)) else obj
             if isinstance(obj, np.ndarray):
-                return obj.tolist()
+                return _sanitize(obj.tolist())
             if isinstance(obj, pd.Timestamp):
                 return obj.isoformat()
-            if isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
-                return None
             return obj
 
-        return json.loads(json.dumps(s, default=clean))
+        return json.loads(json.dumps(_sanitize(s)))
 
 
 if __name__ == '__main__':

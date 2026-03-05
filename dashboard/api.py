@@ -59,6 +59,12 @@ def api_stocks():
     return jsonify(snapshot.get('stocks', []))
 
 
+@app.route('/api/sectors')
+def api_sectors():
+    snapshot = _get_snapshot()
+    return jsonify(snapshot.get('sectors', {}))
+
+
 @app.route('/api/regime')
 def api_regime():
     snapshot = _get_snapshot()
