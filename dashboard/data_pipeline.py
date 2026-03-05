@@ -876,7 +876,7 @@ class DashboardPipeline:
 
     # ─── Main builders ───
 
-    def build_snapshot(self, include_system=True):
+    def build_snapshot(self, include_system=False):
         """Build complete snapshot with all data."""
         print("📊 Building dashboard snapshot...", flush=True)
 
