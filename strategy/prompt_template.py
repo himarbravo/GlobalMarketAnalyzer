@@ -174,7 +174,9 @@ def _section_questions():
 9. ¿Hay algún riesgo GEOPOLÍTICO actual (conflictos armados, sanciones,
    rutas comerciales, embargo, tensiones entre potencias) que pueda impactar
    mi cartera y que mis datos cuantitativos NO capturen?
-10. ¿Qué sectores de mi cartera son más vulnerables a los titulares recientes?"""
+10. ¿Qué sectores de mi cartera son más vulnerables a los titulares recientes?
+11. Para tus TOP 5 acciones elegidas, dame: peso recomendado (% de cartera),
+    target de precio a 4 semanas, y stop-loss sugerido."""
 
 
 def _section_headlines(data):
