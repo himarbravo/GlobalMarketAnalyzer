@@ -23,12 +23,21 @@ Estoy usando un sistema cuantitativo propio que combina:
    (IPC, desempleo, PMI, HY spread, petróleo, oro, cobre).
 3. **Valoración macro**: CAPE Shiller y Indicador Buffett como alertas.
 4. **Sentimiento**: Fear & Greed Index + flujos ETF (SPY/QQQ/TLT/GLD/IWM).
-5. **Titulares recientes**: headlines de mercado para contexto cualitativo.
-6. **Clasificación de régimen**: basada en VIX, spreads y pendiente de curva.
+5. **Régimen HMM**: modelo Hidden Markov de 3 estados (bull/neutral/bear)
+   con probabilidades de transición a 1 semana.
+6. **Optimización Markowitz**: pesos óptimos max-Sharpe con restricción 5-40%.
+7. **Riesgo cuantitativo**: CVaR 95%, VaR, max drawdown, y monitor de
+   cambios de correlación (alerta cuando correlaciones se disparan).
+8. **Factor timing**: el sistema repondera las acciones según el régimen —
+   en bull prioriza momentum, en bear prioriza calidad y valor.
 
 Necesito tu CRITERIO HUMANO — no reglas mecánicas.
-Quiero que interpretes estos datos como lo haría un gestor experimentado
-que entiende las sutilezas que un modelo cuantitativo no captura.
+Quiero que interpretes estos datos como lo haría un gestor experimentado.
+Especialmente:
+- ¿Estás de acuerdo con el régimen que detecta el HMM?
+- ¿Los pesos de Markowitz son sensatos dada la coyuntura?
+- ¿El factor timing está eligiendo bien según el régimen?
+- ¿Las correlaciones cambiantes requieren acción?
 
 IMPORTANTE: Mi cartera está diversificada por sector (top 5 por cada sector GICS).
 Analiza riesgos y oportunidades tanto a nivel individual como sectorial."""
