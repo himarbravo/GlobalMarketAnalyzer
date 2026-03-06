@@ -345,6 +345,34 @@ def _section_factor_timing(data):
     return '\n'.join(lines)
 
 
+def _section_lgbm(data):
+    """Generate LightGBM direction signal section."""
+    sig = data.get('lgbm_signal', {})
+    if not sig or 'signal' not in sig:
+        return ""
+
+    emoji = '🟢' if sig['signal'] == 'UP' else '🔴'
+    lines = [f"═══ SEÑAL ML (LightGBM) ═══"]
+    lines.append(f"  {emoji} Predicción SPY 5 días: {sig['signal']} "
+                 f"(confianza: {sig['confidence']:.0%})")
+    lines.append(f"  Accuracy histórica: {sig.get('model_accuracy', 0):.1%} "
+                 f"(⚠️ marginal, usar como indicador, no como señal única)")
+
+    fi = sig.get('feature_importance', [])
+    if fi:
+        lines.append("  Drivers principales (qué mueve la predicción):")
+        for feat, imp in fi[:5]:
+            lines.append(f"    {feat}: importancia={imp:.0f}")
+
+    top = sig.get('top_features', [])
+    if top:
+        lines.append("  Valores actuales:")
+        for f in top[:5]:
+            lines.append(f"    {f['feature']}: {f['value']}")
+
+    return '\n'.join(lines)
+
+
 def build_prompt(snapshot, sections=None):
     """
     Build the complete LLM prompt from a snapshot dict.
@@ -363,7 +391,7 @@ def build_prompt(snapshot, sections=None):
         sections = ['context', 'market', 'yields', 'fred',
                     'headlines', 'sentiment', 'regime_hmm', 'system',
                     'stocks', 'portfolio', 'risk', 'factor_timing',
-                    'questions']
+                    'lgbm', 'questions']
 
     parts = []
 
@@ -414,6 +442,11 @@ def build_prompt(snapshot, sections=None):
         ft = _section_factor_timing(snapshot)
         if ft:
             parts.append(ft)
+
+    if 'lgbm' in sections:
+        lgbm = _section_lgbm(snapshot)
+        if lgbm:
+            parts.append(lgbm)
 
     if 'questions' in sections:
         parts.append(_section_questions())
