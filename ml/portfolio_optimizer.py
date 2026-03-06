@@ -61,7 +61,13 @@ def optimize_portfolio(tickers, period='6mo', risk_free_rate=None):
 
     n = len(valid_tickers)
     mu = returns.mean().values * 252          # annualized returns
-    cov = returns.cov().values * 252          # annualized covariance
+
+    # Ledoit-Wolf shrinkage for stable covariance estimation
+    from sklearn.covariance import LedoitWolf
+    lw = LedoitWolf().fit(returns.values)
+    cov = lw.covariance_ * 252                # annualized
+    shrinkage_coef = round(float(lw.shrinkage_), 4)
+
     corr = returns.corr().values
 
     # Check for NaN
@@ -122,6 +128,7 @@ def optimize_portfolio(tickers, period='6mo', risk_free_rate=None):
         'var_95': round(float(var_95), 4),
         'correlations': high_corrs[:5],
         'equal_weight_sharpe': round(float(eq_sharpe), 3),
+        'shrinkage': shrinkage_coef,
     }
 
 
