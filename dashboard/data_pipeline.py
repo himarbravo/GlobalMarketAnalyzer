@@ -907,6 +907,24 @@ class DashboardPipeline:
         print("  → Momentum ranking...", flush=True)
         stocks, sectors = self.fetch_momentum_ranking()
 
+        # Portfolio optimization (Markowitz) on top stocks
+        portfolio_opt = {}
+        try:
+            from ml.portfolio_optimizer import optimize_portfolio
+            # Take #1 from each sector (diverse picks)
+            top_per_sector = []
+            seen = set()
+            for s in stocks:
+                if s['sector'] not in seen and len(top_per_sector) < 8:
+                    top_per_sector.append(s['ticker'])
+                    seen.add(s['sector'])
+            if len(top_per_sector) >= 3:
+                print(f"  → Portfolio optimization ({len(top_per_sector)} tickers)...",
+                      flush=True)
+                portfolio_opt = optimize_portfolio(top_per_sector)
+        except Exception:
+            pass
+
         system_analytics = {}
         if include_system:
             print("  → System analytics (O-U, graph)...", flush=True)
@@ -924,6 +942,7 @@ class DashboardPipeline:
             'health': health,
             'stocks': stocks,
             'sectors': sectors,
+            'portfolio_opt': portfolio_opt,
             'system_analytics': system_analytics,
         }
 

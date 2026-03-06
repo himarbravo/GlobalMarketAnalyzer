@@ -191,6 +191,34 @@ def _section_headlines(data):
     return '\n'.join(lines)
 
 
+def _section_portfolio(data):
+    """Generate Markowitz portfolio optimization section."""
+    opt = data.get('portfolio_opt', {})
+    if not opt or 'weights' not in opt:
+        return ""
+
+    lines = ["═══ OPTIMIZACIÓN DE CARTERA (Markowitz) ═══"]
+    lines.append("Pesos óptimos para máximo Sharpe ratio (restricción 5-40% por acción):")
+
+    for tk, w in sorted(opt['weights'].items(), key=lambda x: x[1], reverse=True):
+        lines.append(f"  {tk}: {w:.1%}")
+
+    lines.append(f"")
+    lines.append(f"  Sharpe ratio: {opt.get('sharpe', 0):.2f} (equal-weight: {opt.get('equal_weight_sharpe', 0):.2f})")
+    lines.append(f"  Retorno anualizado: {opt.get('annual_return', 0):.1%}")
+    lines.append(f"  Volatilidad anualizada: {opt.get('annual_vol', 0):.1%}")
+    lines.append(f"  VaR 95% diario: {opt.get('var_95', 0):.2%}")
+
+    corrs = opt.get('correlations', [])
+    if corrs:
+        lines.append(f"  ⚠️ Correlaciones altas:")
+        for tk1, tk2, c in corrs:
+            lines.append(f"    {tk1}-{tk2}: {c:.2f}")
+
+    lines.append("Usa estos pesos como referencia matemática para tu recomendación.")
+    return '\n'.join(lines)
+
+
 def _section_sentiment(data):
     """Generate sentiment & flows section."""
     lines = ["═══ SENTIMIENTO Y FLUJOS ═══"]
@@ -237,7 +265,8 @@ def build_prompt(snapshot, sections=None):
     """
     if sections is None:
         sections = ['context', 'market', 'yields', 'fred',
-                    'headlines', 'sentiment', 'system', 'stocks', 'questions']
+                    'headlines', 'sentiment', 'system', 'stocks',
+                    'portfolio', 'questions']
 
     parts = []
 
@@ -262,10 +291,17 @@ def build_prompt(snapshot, sections=None):
         parts.append(_section_sentiment(snapshot))
 
     if 'system' in sections:
-        parts.append(_section_system(snapshot))
+        sys_section = _section_system(snapshot)
+        if sys_section:
+            parts.append(sys_section)
 
     if 'stocks' in sections:
         parts.append(_section_stocks(snapshot))
+
+    if 'portfolio' in sections:
+        port = _section_portfolio(snapshot)
+        if port:
+            parts.append(port)
 
     if 'questions' in sections:
         parts.append(_section_questions())
