@@ -948,6 +948,19 @@ class DashboardPipeline:
         except Exception:
             pass
 
+        # LightGBM direction signal
+        lgbm_signal = {}
+        try:
+            from ml.lgbm_direction import LGBMDirectionPredictor
+            print("  → LightGBM direction model...", flush=True)
+            lgbm = LGBMDirectionPredictor(train_years=3)
+            lgbm.train()
+            lgbm_signal = lgbm.predict_current()
+            lgbm_signal['feature_importance'] = lgbm._results.get('feature_importance', [])
+            lgbm_signal['strategy_sharpe'] = lgbm._results.get('strategy_sharpe', 0)
+        except Exception:
+            pass
+
         # Factor timing (regime-conditional stock reweighting)
         factor_timing = {}
         try:
@@ -980,6 +993,7 @@ class DashboardPipeline:
             'portfolio_opt': portfolio_opt,
             'risk_metrics': risk_metrics,
             'factor_timing': factor_timing,
+            'lgbm_signal': lgbm_signal,
             'system_analytics': system_analytics,
         }
 
