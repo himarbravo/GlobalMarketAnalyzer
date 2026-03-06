@@ -373,6 +373,37 @@ def _section_lgbm(data):
     return '\n'.join(lines)
 
 
+def _section_changepoint(data):
+    """Generate changepoint detection section."""
+    cp = data.get('changepoint', {})
+    if not cp or 'changepoint_prob_now' not in cp:
+        return ""
+
+    prob = cp['changepoint_prob_now']
+    run = cp.get('current_run_length', 0)
+    total = cp.get('total_changepoints', 0)
+
+    lines = ["═══ DETECCIÓN DE CAMBIO ESTRUCTURAL (BOCD) ═══"]
+    if prob > 0.3:
+        lines.append(f"  🚨 P(cambio hoy): {prob:.1%} — ALERTA: posible cambio de régimen")
+    elif prob > 0.15:
+        lines.append(f"  ⚠️ P(cambio hoy): {prob:.1%} — vigilar")
+    else:
+        lines.append(f"  ✅ P(cambio hoy): {prob:.1%} — régimen estable")
+
+    lines.append(f"  Días sin cambio estructural: {run}")
+    lines.append(f"  Cambios detectados (último año): {total}")
+
+    cps = cp.get('changepoints', [])
+    if cps:
+        lines.append("  Cambios recientes:")
+        for c in cps[-5:]:
+            lines.append(f"    {c['date']}: P={c['probability']:.0%} "
+                         f"SPY=${c['spy_price']} — {c['description']}")
+
+    return '\n'.join(lines)
+
+
 def build_prompt(snapshot, sections=None):
     """
     Build the complete LLM prompt from a snapshot dict.
@@ -391,7 +422,7 @@ def build_prompt(snapshot, sections=None):
         sections = ['context', 'market', 'yields', 'fred',
                     'headlines', 'sentiment', 'regime_hmm', 'system',
                     'stocks', 'portfolio', 'risk', 'factor_timing',
-                    'lgbm', 'questions']
+                    'lgbm', 'changepoint', 'questions']
 
     parts = []
 
@@ -447,6 +478,11 @@ def build_prompt(snapshot, sections=None):
         lgbm = _section_lgbm(snapshot)
         if lgbm:
             parts.append(lgbm)
+
+    if 'changepoint' in sections:
+        cp = _section_changepoint(snapshot)
+        if cp:
+            parts.append(cp)
 
     if 'questions' in sections:
         parts.append(_section_questions())

@@ -948,6 +948,15 @@ class DashboardPipeline:
         except Exception:
             pass
 
+        # Changepoint detection (BOCD)
+        changepoint = {}
+        try:
+            from ml.changepoint import detect_changepoints
+            print("  → Changepoint detection...", flush=True)
+            changepoint = detect_changepoints(period='1y')
+        except Exception:
+            pass
+
         # LightGBM direction signal
         lgbm_signal = {}
         try:
@@ -994,6 +1003,7 @@ class DashboardPipeline:
             'risk_metrics': risk_metrics,
             'factor_timing': factor_timing,
             'lgbm_signal': lgbm_signal,
+            'changepoint': changepoint,
             'system_analytics': system_analytics,
         }
 
