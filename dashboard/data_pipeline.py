@@ -936,6 +936,18 @@ class DashboardPipeline:
         except Exception:
             pass
 
+        # Risk metrics (CVaR, correlation monitor)
+        risk_metrics = {}
+        try:
+            from ml.risk_monitor import compute_risk_metrics
+            opt_weights = portfolio_opt.get('weights', {}) if portfolio_opt else {}
+            risk_tickers = list(opt_weights.keys()) if opt_weights else top_per_sector
+            if risk_tickers and len(risk_tickers) >= 2:
+                print(f"  → Risk metrics ({len(risk_tickers)} tickers)...", flush=True)
+                risk_metrics = compute_risk_metrics(risk_tickers, weights=opt_weights or None)
+        except Exception:
+            pass
+
         system_analytics = {}
         if include_system:
             print("  → System analytics (O-U, graph)...", flush=True)
@@ -955,6 +967,7 @@ class DashboardPipeline:
             'stocks': stocks,
             'sectors': sectors,
             'portfolio_opt': portfolio_opt,
+            'risk_metrics': risk_metrics,
             'system_analytics': system_analytics,
         }
 

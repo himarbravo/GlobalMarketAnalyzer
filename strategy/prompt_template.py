@@ -282,6 +282,33 @@ def _section_regime_hmm(data):
     return '\n'.join(lines)
 
 
+def _section_risk(data):
+    """Generate risk metrics section."""
+    rm = data.get('risk_metrics', {})
+    if not rm or 'cvar_95' not in rm:
+        return ""
+
+    lines = ["═══ RIESGO DE CARTERA ═══"]
+    lines.append(f"  CVaR 95%: {rm['cvar_95']:.2%} (pérdida media en el peor 5% de días)")
+    lines.append(f"  VaR 95%: {rm['var_95']:.2%} | VaR 99%: {rm['var_99']:.2%}")
+    lines.append(f"  Max Drawdown (1yr): {rm['max_drawdown']:.1%}")
+    lines.append(f"  Volatilidad anual: {rm['annual_vol']:.1%}")
+
+    hc = rm.get('high_correlations', [])
+    if hc:
+        lines.append("  ⚠️ Correlaciones altas (>0.7):")
+        for c in hc:
+            lines.append(f"    {c['pair']}: {c['correlation']:.2f}")
+
+    cc = rm.get('correlation_changes', [])
+    if cc:
+        lines.append("  🚨 Cambios de correlación recientes (30d vs anterior):")
+        for c in cc:
+            lines.append(f"    {c['pair']}: {c['before']:.2f} → {c['now']:.2f} ({c['change']:+.2f})")
+
+    return '\n'.join(lines)
+
+
 def build_prompt(snapshot, sections=None):
     """
     Build the complete LLM prompt from a snapshot dict.
@@ -299,7 +326,7 @@ def build_prompt(snapshot, sections=None):
     if sections is None:
         sections = ['context', 'market', 'yields', 'fred',
                     'headlines', 'sentiment', 'regime_hmm', 'system',
-                    'stocks', 'portfolio', 'questions']
+                    'stocks', 'portfolio', 'risk', 'questions']
 
     parts = []
 
@@ -340,6 +367,11 @@ def build_prompt(snapshot, sections=None):
         port = _section_portfolio(snapshot)
         if port:
             parts.append(port)
+
+    if 'risk' in sections:
+        risk = _section_risk(snapshot)
+        if risk:
+            parts.append(risk)
 
     if 'questions' in sections:
         parts.append(_section_questions())
