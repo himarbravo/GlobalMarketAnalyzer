@@ -5,9 +5,15 @@ Water-landscape model on a hierarchical fractional graph with multi-currency mon
 ## 🚀 Quick Start
 
 ```bash
-# Launch the dashboard
+# Activar entorno
+source .venv/bin/activate
+
+# Lanzar dashboard
 PYTHONPATH=. python dashboard/api.py
-# Open http://localhost:8050
+# → Abrir http://localhost:8050
+
+# Señal diaria
+PYTHONPATH=. python strategy/daily_signal.py
 ```
 
 ## The Equation

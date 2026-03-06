@@ -2,16 +2,23 @@
 
 # Uso rápido
 ```bash
+# Primero activar el entorno (solo una vez por terminal)
+source .venv/bin/activate
+
+# Dashboard (abrir http://localhost:8050)
+PYTHONPATH=. python dashboard/api.py
+
 # Señal de hoy
-python strategy/daily_signal.py
+PYTHONPATH=. python strategy/daily_signal.py
+
 # Backtest completo
-python strategy/backtest.py --vix 20 --top 10
+PYTHONPATH=. python strategy/backtest.py --vix 20 --top 10
+
 # Actualizar portfolio (tras earnings)
-python strategy/select_stocks.py --top 10
+PYTHONPATH=. python strategy/select_stocks.py --top 10
+
 # Test en 19 periodos históricos
-python strategy/walk_forward_backtest.py
-# Cron para Telegram (21:30 CET, L-V)
-# 30 21 * * 1-5 python strategy/daily_signal.py --telegram
+PYTHONPATH=. python strategy/walk_forward_backtest.py
 ```
 
 ## Regla
