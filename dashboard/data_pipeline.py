@@ -948,6 +948,17 @@ class DashboardPipeline:
         except Exception:
             pass
 
+        # Factor timing (regime-conditional stock reweighting)
+        factor_timing = {}
+        try:
+            from ml.factor_timing import apply_factor_timing
+            regime_name = hmm_regime.get('current_regime', 'neutral') if hmm_regime else 'neutral'
+            if stocks:
+                factor_timing = apply_factor_timing(stocks, regime=regime_name)
+                print(f"  → Factor timing ({regime_name})...", flush=True)
+        except Exception:
+            pass
+
         system_analytics = {}
         if include_system:
             print("  → System analytics (O-U, graph)...", flush=True)
@@ -968,6 +979,7 @@ class DashboardPipeline:
             'sectors': sectors,
             'portfolio_opt': portfolio_opt,
             'risk_metrics': risk_metrics,
+            'factor_timing': factor_timing,
             'system_analytics': system_analytics,
         }
 

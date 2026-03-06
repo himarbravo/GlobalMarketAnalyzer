@@ -309,6 +309,33 @@ def _section_risk(data):
     return '\n'.join(lines)
 
 
+def _section_factor_timing(data):
+    """Generate factor timing section."""
+    ft = data.get('factor_timing', {})
+    if not ft or 'ranked_stocks' not in ft:
+        return ""
+
+    regime = ft.get('regime', 'neutral').upper()
+    emoji = {'BULL': '🟢', 'NEUTRAL': '🟡', 'BEAR': '🔴'}.get(regime, '⚪')
+    lines = [f"═══ FACTOR TIMING ({emoji} {regime}) ═══"]
+    lines.append(ft.get('advice', ''))
+
+    fw = ft.get('factor_weights', {})
+    lines.append(f"  Pesos factores: momentum={fw.get('momentum',0):.0%} | "
+                 f"quality={fw.get('quality',0):.0%} | "
+                 f"value={fw.get('value',0):.0%} | "
+                 f"low_vol={fw.get('low_vol',0):.0%}")
+    lines.append("")
+    lines.append("  Top stocks ajustados por régimen:")
+    for s in ft['ranked_stocks'][:10]:
+        lines.append(f"    {s['ticker']} ({s['sector']}): "
+                     f"composite={s['composite_score']:.1f} "
+                     f"[m={s['momentum_score']}, q={s['quality_score']}, "
+                     f"v={s['value_score']}, lv={s['low_vol_score']}]")
+
+    return '\n'.join(lines)
+
+
 def build_prompt(snapshot, sections=None):
     """
     Build the complete LLM prompt from a snapshot dict.
@@ -326,7 +353,8 @@ def build_prompt(snapshot, sections=None):
     if sections is None:
         sections = ['context', 'market', 'yields', 'fred',
                     'headlines', 'sentiment', 'regime_hmm', 'system',
-                    'stocks', 'portfolio', 'risk', 'questions']
+                    'stocks', 'portfolio', 'risk', 'factor_timing',
+                    'questions']
 
     parts = []
 
@@ -372,6 +400,11 @@ def build_prompt(snapshot, sections=None):
         risk = _section_risk(snapshot)
         if risk:
             parts.append(risk)
+
+    if 'factor_timing' in sections:
+        ft = _section_factor_timing(snapshot)
+        if ft:
+            parts.append(ft)
 
     if 'questions' in sections:
         parts.append(_section_questions())
