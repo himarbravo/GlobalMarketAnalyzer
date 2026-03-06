@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GlobalMarketAnalyzer — Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #1c2333;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --green: #3fb950;
+            --yellow: #d29922;
+            --orange: #db6d28;
+            --red: #f85149;
+            --blue: #58a6ff;
+            --purple: #bc8cff;
+            --gold: #e3b341;
+            --accent-gradient: linear-gradient(135deg, #58a6ff, #bc8cff);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .regime-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .regime-calm {
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--green);
+            border: 1px solid rgba(63, 185, 80, 0.3);
+        }
+
+        .regime-normal {
+            background: rgba(210, 153, 34, 0.15);
+            color: var(--yellow);
+            border: 1px solid rgba(210, 153, 34, 0.3);
+        }
+
+        .regime-stress {
+            background: rgba(219, 109, 40, 0.15);
+            color: var(--orange);
+            border: 1px solid rgba(219, 109, 40, 0.3);
+        }
+
+        .regime-panic {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--red);
+            border: 1px solid rgba(248, 81, 73, 0.3);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            border-color: var(--blue);
+            color: var(--blue);
+        }
+
+        .btn-primary {
+            background: var(--blue);
+            color: #fff;
+            border-color: var(--blue);
+        }
+
+        .btn-primary:hover {
+            opacity: 0.85;
+        }
+
+        .timestamp {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* ── Grid ── */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            padding: 20px 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: border-color 0.2s;
+        }
+
+        .card:hover {
+            border-color: rgba(88, 166, 255, 0.3);
+        }
+
+        .card-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* ── Info btn ── */
+        .info-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(88, 166, 255, 0.12);
+            color: var(--blue);
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            border: 1px solid rgba(88, 166, 255, 0.3);
+            transition: all 0.2s;
+            flex-shrink: 0;
+            line-height: 1;
+        }
+
+        .info-btn:hover {
+            background: rgba(88, 166, 255, 0.25);
+            transform: scale(1.1);
+        }
+
+        /* ── Modal ── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            max-width: 560px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 28px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .modal-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
+        .modal-section {
+            margin-bottom: 16px;
+        }
+
+        .modal-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--blue);
+            margin-bottom: 8px;
+        }
+
+        .modal-text {
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+
+        .modal-state {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            padding: 8px 12px;
+            margin: 6px 0;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            border-left: 3px solid var(--border);
+        }
+
+        .modal-state-label {
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            min-width: 100px;
+        }
+
+        .modal-state-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 20px;
+            font-size: 20px;
+            cursor: pointer;
+            color: var(--text-muted);
+            background: none;
+            border: none;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-tip {
+            background: rgba(88, 166, 255, 0.08);
+            border: 1px solid rgba(88, 166, 255, 0.2);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 12px;
+        }
+
+        .modal-tip-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--blue);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-tip-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* ── VIX ── */
+        .vix-card {
+            grid-column: 1;
+        }
+
+        .vix-big {
+            font-size: 48px;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+
+        .vix-detail {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .chart-container {
+            height: 160px;
+            margin-top: 12px;
+        }
+
+        /* ── Yields ── */
+        .yields-card {
+            grid-column: 2;
+        }
+
+        .yield-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+        }
+
+        .yield-row:last-child {
+            border: none;
+        }
+
+        .yield-label {
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .yield-value {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .yield-change {
+            font-size: 12px;
+            margin-left: 8px;
+        }
+
+        /* ── Regime ── */
+        .regime-card {
+            grid-column: 3;
+        }
+
+        .crisis-type {
+            font-size: 15px;
+            font-weight: 600;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        .refuge-rec {
+            padding: 12px;
+            background: rgba(88, 166, 255, 0.08);
+            border-radius: 8px;
+            border: 1px solid rgba(88, 166, 255, 0.2);
+            margin-bottom: 12px;
+        }
+
+        .refuge-rec-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--blue);
+            margin-bottom: 6px;
+        }
+
+        .refuge-rec-text {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .signal-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 13px;
+        }
+
+        .signal-label {
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .signal-value {
+            font-weight: 600;
+        }
+
+        /* ── Instruments ── */
+        .instruments-card {
+            grid-column: 1 / 3;
+        }
+
+        .instruments-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        .instrument {
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+
+        .instrument-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .instrument-ticker {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+
+        .instrument-name {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .instrument-price {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .instrument-changes {
+            display: flex;
+            gap: 8px;
+            font-size: 11px;
+        }
+
+        .chg-tag {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .chg-pos {
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--green);
+        }
+
+        .chg-neg {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--red);
+        }
+
+        /* ── FRED ── */
+        .fred-card {
+            grid-column: 3;
+        }
+
+        .fred-item {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+        }
+
+        .fred-item:last-child {
+            border: none;
+        }
+
+        .fred-name {
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .fred-value-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 2px;
+        }
+
+        .fred-val {
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .fred-chg {
+            font-size: 12px;
+        }
+
+        /* ── Stocks ── */
+        .stocks-card {
+            grid-column: 1 / -1;
+        }
+
+        .stocks-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .stocks-table th {
+            text-align: left;
+            padding: 8px 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .stocks-table th:hover {
+            color: var(--blue);
+        }
+
+        .stocks-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(48, 54, 61, 0.3);
+        }
+
+        .stocks-table tr:hover td {
+            background: rgba(88, 166, 255, 0.03);
+        }
+
+        .score-bar {
+            display: inline-flex;
+            gap: 2px;
+        }
+
+        .score-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            background: var(--border);
+        }
+
+        .score-dot.active {
+            background: var(--green);
+        }
+
+        .score-dot.active.high {
+            background: var(--blue);
+        }
+
+        /* ── Health ── */
+        .health-card {
+            grid-column: 1 / -1;
+        }
+
+        .health-summary {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+
+        .health-count {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        .health-count.alert-count {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--red);
+        }
+
+        .health-count.warning-count {
+            background: rgba(210, 153, 34, 0.15);
+            color: var(--yellow);
+        }
+
+        .health-count.ok-count {
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--green);
+        }
+
+        .health-alert {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+
+        .health-alert.sev-alert {
+            border-left: 3px solid var(--red);
+        }
+
+        .health-alert.sev-warning {
+            border-left: 3px solid var(--yellow);
+        }
+
+        .health-alert.sev-ok {
+            border-left: 3px solid var(--green);
+        }
+
+        .health-alert-header {
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-secondary);
+        }
+
+        .health-alert-header:hover {
+            background: rgba(88, 166, 255, 0.05);
+        }
+
+        .health-alert-title {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .health-alert-toggle {
+            font-size: 12px;
+            color: var(--text-muted);
+            transition: transform 0.2s;
+        }
+
+        .health-alert-body {
+            display: none;
+            padding: 12px 14px;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            background: var(--bg-primary);
+        }
+
+        .health-alert-body.open {
+            display: block;
+        }
+
+        .health-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--blue);
+            margin-top: 8px;
+            margin-bottom: 2px;
+        }
+
+        .health-label:first-child {
+            margin-top: 0;
+        }
+
+        /* ── Prompt ── */
+        .prompt-card {
+            grid-column: 1 / -1;
+        }
+
+        .prompt-text {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+        }
+
+        .copy-feedback {
+            display: none;
+            color: var(--green);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .positive {
+            color: var(--green);
+        }
+
+        .negative {
+            color: var(--red);
+        }
+
+        .neutral {
+            color: var(--text-secondary);
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 12px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .dashboard {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .instruments-card,
+            .stocks-card,
+            .prompt-card {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            .vix-card,
+            .yields-card,
+            .regime-card,
+            .instruments-card,
+            .fred-card {
+                grid-column: 1;
+            }
+
+            .instruments-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header class="header">
+        <div class="header-left">
+            <h1>📊 GlobalMarketAnalyzer</h1>
+            <span id="regime-badge" class="regime-badge regime-normal">—</span>
+        </div>
+        <div class="header-right">
+            <span id="timestamp" class="timestamp">—</span>
+            <button class="btn" onclick="refreshData()">⟳ Refresh</button>
+        </div>
+    </header>
+
+    <main class="dashboard" id="dashboard">
+        <div class="loading">
+            <div class="spinner"></div> Cargando datos de mercado...
+        </div>
+    </main>
+
+    <!-- Glossary Modal -->
+    <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+        <div class="modal" id="modal-content" onclick="event.stopPropagation()">
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+        let DATA = null;
+
+        // ══════════════════════════════════════════════════
+        // GLOSSARY — Explanations a prueba de dummies
+        // ══════════════════════════════════════════════════
+        const GLOSSARY = {
+            VIX: {
+                icon: '😱', title: 'VIX — El "índice del miedo"',
+                what: 'Imagina un termómetro que mide cuánto MIEDO hay en el mercado. No mide si las acciones suben o bajan, sino cuánto NERVIOSISMO hay entre los inversores. Se calcula mirando el precio de los "seguros" (opciones) que la gente compra para protegerse.\n\n🔬 CÓMO LO CALCULAMOS: Usamos el valor del VIX directamente de Yahoo Finance (^VIX). Los umbrales <15, 15-20, 20-30, >30 se basan en la distribución histórica del VIX desde 1990: la media histórica es ~19, el percentil 25 es ~14, y el percentil 90 es ~30. Nuestro backtest de 21 años (2004-2026) probó umbrales fijos de 15 a 35 en grid search; el umbral 20 (VIX_GATE=20) dió el mejor Sharpe ratio con umbral fijo (Sharpe 2.11). Pero la comparación VIX vs MA20 fue aún mejor (Sharpe 3.52).',
+                states: [
+                    ['🟢 Menos de 15', 'CALMA TOTAL. VIX por debajo del percentil 25 histórico. Buen momento para momentum.'],
+                    ['🟡 Entre 15-20', 'NORMAL. Rango medio histórico (media ~19). Sin acción necesaria.'],
+                    ['🟠 Entre 20-30', 'NERVIOSISMO. Por encima de la media. Nuestro gate (VIX_GATE=20) activa modo refugio aquí.'],
+                    ['🔴 Más de 30', 'PÁNICO. Percentil 90+. Históricamente marca suelo de mercado (oportunidad en 1-2 semanas).'],
+                ],
+                tip: 'Nuestro sistema usa DOS gates simultáneos: (1) VIX > 20 (umbral fijo) y (2) VIX > MA20 (relativo). Si AMBOS están en rojo, la señal es fuerte. Si solo uno, es señal débil. Los umbrales vienen del backtest walk-forward sobre 19 periodos históricos.',
+            },
+            MA20: {
+                icon: '📊', title: 'Media Móvil 20 días (MA20)',
+                what: 'Es el promedio del VIX de los últimos 20 días hábiles (≈1 mes). Fórmula: MA20 = suma(VIX de los últimos 20 días) / 20.\n\n🔬 POR QUÉ MA20 Y NO OTRO: Probamos MA10, MA20, MA50 y MA100 en backtest. MA20 dió el mejor Sharpe ratio (3.52) vs MA50 (2.8) y MA10 (2.1, demasiados cambios). 20 días = ~1 mes de trading, captura el "régimen reciente" sin ser ni muy nervioso ni muy lento.',
+                states: [
+                    ['VIX > MA20', '🔴 GATE ACTIVO. El miedo de HOY es mayor que el promedio del último mes. Nuestro backtest mostró que esta señal adelanta correcciones con Sharpe 3.52 (el mejor de todos los métodos probados).'],
+                    ['VIX ≈ MA20', '🟡 NEUTRAL. El VIX está en línea con su media reciente.'],
+                    ['VIX < MA20', '🟢 CALMA relativa. El miedo baja respecto al mes anterior.'],
+                ],
+                tip: 'Resultado del backtest walk-forward (2004-2026, 19 periodos): VIX>MA20 → Sharpe 3.52, Win rate 63%. VIX>20 fijo → Sharpe 2.11. VIX>25 fijo → Sharpe 1.85. Por eso usamos MA20 como gate principal. NOTA: Sharpe real estimado tras costes/slippage: 1.0-1.5.',
+            },
+            YIELD_CURVE: {
+                icon: '📈', title: 'Curva de Tipos — ¿Viene una recesión?',
+                what: 'Los gobiernos piden dinero prestado a distintos plazos (3 meses, 5 años, 10 años, 30 años). Normalmente, pedir prestado a MÁS plazo cuesta MÁS (como una hipoteca es más cara que un préstamo a 1 año). La curva muestra estos tipos de interés de menor a mayor plazo.',
+                states: [
+                    ['📈 Curva NORMAL (pendiente positiva)', 'Todo bien. Los tipos a largo plazo son más altos que los de corto plazo. La economía funciona con normalidad.'],
+                    ['📏 Curva PLANA', 'Señal de alerta. El mercado NO espera crecimiento futuro. Puede preceder una recesión.'],
+                    ['📉 Curva INVERTIDA (pendiente negativa)', '🚨 ALERTA ROJA. Los tipos a corto son MÁS ALTOS que a largo. Esto ha predicho TODAS las recesiones desde 1970 con un 100% de acierto. La recesión suele llegar 6-18 meses después.'],
+                ],
+                tip: 'Mira el "Spread 10Y-3M" — es la diferencia entre la yield a 10 años y a 3 meses. Si es NEGATIVO, la curva está invertida y hay señal de recesión.',
+            },
+            YIELD_10Y: {
+                icon: '🏦', title: 'Yield 10 años — El tipo más importante del mundo',
+                what: 'Es el interés que paga el gobierno de EEUU por pedir prestado a 10 años. Es EL número más importante en finanzas porque TODO depende de él: hipotecas, valoración de empresas, coste de la deuda corporativa...',
+                states: [
+                    ['⬆️ Subiendo rápido', 'PELIGRO para los bonos (TLT baja). Las acciones de tecnología sufren porque sus beneficios futuros "valen menos" cuando los tipos suben. TLT NO es buen refugio en este escenario.'],
+                    ['⬇️ Bajando rápido', 'BUENO para bonos (TLT sube). Los inversores buscan seguridad. TLT SÍ funciona como refugio. Las acciones de tech se benefician.'],
+                    ['➡️ Estable', 'Neutral. No hay dirección clara.'],
+                ],
+                tip: 'REGLA DE ORO: Si la yield sube, TLT (bonos largos) BAJA. Si la yield baja, TLT SUBE. Son inversamente proporcionales. Esto es CRÍTICO para decidir si TLT es buen refugio o no.',
+            },
+            SPY: {
+                icon: '🇺🇸', title: 'SPY — El mercado USA en una sola acción',
+                what: 'Es un ETF (fondo cotizado) que contiene las 500 empresas más grandes de Estados Unidos: Apple, Microsoft, Amazon, Google, etc. Comprar SPY es como comprar un trocito de toda la economía americana. Si SPY sube, "el mercado sube".',
+                states: [
+                    ['📈 Subiendo', 'El mercado está optimista. Las empresas grandes ganan dinero.'],
+                    ['📉 Cayendo', 'Algo preocupa. Puede ser temporal (corrección = oportunidad) o serio (crisis = refugio).'],
+                ],
+                tip: 'SPY es nuestra inversión principal en modo "momentum" (cuando el VIX está tranquilo). Cuando hay pánico, lo que hacemos es mover dinero DE SPY HACIA refugio (TLT, GLD, o cash).',
+            },
+            QQQ: {
+                icon: '💻', title: 'QQQ — Las 100 empresas tech más grandes',
+                what: 'ETF del Nasdaq 100, dominado por tecnología: Apple, Microsoft, NVIDIA, Amazon, Meta. Es más arriesgado que SPY porque está muy concentrado en tech. Sube más cuando todo va bien, pero cae más cuando hay problemas.',
+                states: [
+                    ['QQQ > SPY', 'Tech lidera. Los inversores quieren crecimiento. Señal positiva.'],
+                    ['QQQ < SPY', 'Rotación FUERA de tech. Los inversores prefieren cosas más seguras. OJO: puede indicar que los tipos de interés están subiendo.'],
+                ],
+                tip: 'Si QQQ cae más que SPY, significa que los inversores están huyendo de empresas de crecimiento — normalmente porque los tipos de interés están subiendo.',
+            },
+            TLT: {
+                icon: '🛡️', title: 'TLT — Bonos del gobierno USA a largo plazo',
+                what: 'ETF de bonos del Tesoro de EEUU a más de 20 años. En teoría es tu "refugio" cuando las acciones caen. PERO tiene un defecto grave: NO FUNCIONA cuando el problema es la inflación, porque los bonos PIERDEN valor cuando los tipos suben.',
+                states: [
+                    ['📈 TLT subiendo', '¡BIEN! Los bonos funcionan como refugio. Yields bajando = la gente compra bonos = TLT sube. Ejemplo: COVID marzo 2020, los bonos subieron mucho.'],
+                    ['📉 TLT cayendo', '⚠️ CUIDADO. Las yields están subiendo (inflación, Fed subiendo tipos). TLT está PERDIENDO dinero. NO usar como refugio. Ejemplo: 2022, TLT cayó un -31% mientras las acciones también caían.'],
+                ],
+                tip: 'CLAVE: antes de meter dinero en TLT como "refugio", mira si las yields están SUBIENDO o BAJANDO. Si suben → NO uses TLT, usa oro o cash. Si bajan → TLT funciona perfectamente.',
+            },
+            SHY: {
+                icon: '💵', title: 'SHY — Cash seguro (bonos a muy corto plazo)',
+                what: 'ETF de bonos del Tesoro a 1-3 años. Es lo más parecido a tener el dinero en efectivo pero ganando un poquito de interés (~4-5% anual ahora). Prácticamente NUNCA pierde más de un 1%.',
+                states: [
+                    ['Siempre', 'ESTABLE. Es tu refugio "de última instancia" cuando NO confías ni en TLT ni en GLD. Especialmente útil cuando TODO está cayendo (como en 2022 con inflación alta).'],
+                ],
+                tip: 'SHY es tu "puerto seguro universal". No te vas a hacer rico con él, pero tampoco vas a perder dinero. Úsalo cuando no tienes claro qué hacer.',
+            },
+            GLD: {
+                icon: '🥇', title: 'GLD — Oro',
+                what: 'ETF que contiene oro físico. El oro ha sido refugio durante miles de años. Funciona especialmente bien cuando hay incertidumbre geopolítica (guerras, aranceles) o cuando la gente no confía en las monedas (impresión de dinero).',
+                states: [
+                    ['📈 GLD subiendo fuerte', 'Inversores comprando oro como protección. Hay miedo o incertidumbre global.'],
+                    ['📉 GLD estable/bajando', 'No hay demanda especial de refugio en oro. El mercado confía en las monedas y bonos.'],
+                ],
+                tip: 'GLD es especialmente bueno como refugio cuando el PROBLEMA es geopolítico (aranceles, guerras) o de confianza monetaria. Es MEJOR que TLT cuando la inflación es alta, porque el oro no pierde valor con la inflación.',
+            },
+            UUP: {
+                icon: '💲', title: 'UUP — Dólar americano',
+                what: 'ETF que suple el valor del dólar USA frente a otras monedas. Cuando el dólar sube, significa que los inversores de TODO EL MUNDO están comprando dólares para protegerse (porque el dólar es la moneda de reserva global).',
+                states: [
+                    ['💵 UUP subiendo', 'Flight-to-safety global. Los inversores del mundo buscan seguridad en el dólar. Normalmente malo para acciones.'],
+                    ['💵 UUP bajando', 'Apetito por riesgo. Los inversores no necesitan refugiarse en el dólar. Bueno para acciones y materias primas.'],
+                ],
+                tip: 'Dólar fuerte + VIX alto = pánico clásico (inversores vendiendo todo y comprando USD). Dólar débil + VIX alto = problema de inflación/devaluación, aquí el oro funciona mejor.',
+            },
+            TLT_VIABLE: {
+                icon: '❓', title: '¿Es TLT (bonos) buen refugio AHORA?',
+                what: 'Esta señal combina dos condiciones para decidir si TLT es seguro.\n\n🔬 CÓMO SE CALCULA:\n• Condición 1: TLT en 20 días > -2% (es decir, TLT no ha caído más de un 2% en el último mes)\n• Condición 2: La yield 10Y en 20 días no ha subido más de +0.3% (yields_up = chg_20d > 0.003)\n• TLT es viable = Condición 1 Y Condición 2\n\nSi TLT cae >2% en un mes O las yields suben >0.30%, declaramos TLT como NO viable.',
+                states: [
+                    ['✅ SÍ, viable', 'TLT no cae (<-2% en 20d) Y yields estables. Código: tlt_ok = chg_20d > -0.02 AND NOT yields_up'],
+                    ['❌ NO, no viable', 'TLT cae >2% en 20d O yields suben >0.30%. NO usar TLT. Código: yields_up = tnx.chg_20d > 0.003'],
+                ],
+                tip: 'Los umbrales (-2% y +0.30%) se basan en el análisis de 2022: cuando TLT caía >2% mensual, estaba en tendencia bajista confirmada. Y una subida de yields >30bps/mes indica que la Fed o la inflación están presionando al alza.',
+            },
+            GLD_VIABLE: {
+                icon: '❓', title: '¿Es GLD (oro) buen refugio AHORA?',
+                what: 'Se calcula de forma simple:\n\n🔬 CÓMO SE CALCULA:\n• gld_viable = GLD cambio 20 días > -2%\n• Es decir: si el oro NO ha caído más de un 2% en el último mes, lo consideramos viable como refugio.\n\nEs un umbral conservador: el oro rara vez cae >2% mensual excepto en liquidaciones extremas (marzo 2020 brevemente, 2013 taper tantrum).',
+                states: [
+                    ['✅ SÍ', 'GLD no cae significativamente (<-2% en 20d). Funciona como refugio. Código: gld_ok = chg_20d > -0.02'],
+                    ['❌ NO', 'GLD cae >2% mensual. Crisis de liquidez donde hasta el oro se vende. Solo cash (SHY) es seguro.'],
+                ],
+                tip: 'GLD viable + TLT no viable = crisis de INFLACIÓN (como 2022). En ese caso, GLD + SHY es la mejor combinación.',
+            },
+            CRISIS_TYPE: {
+                icon: '🎯', title: 'Tipo de crisis detectado',
+                what: 'El sistema clasifica el tipo de crisis con un árbol de decisión basado en las señales del mercado.\n\n🔬 ALGORITMO EXACTO (en orden de prioridad):\n1. Si VIX < 20 → "Sin estrés" (no hay crisis)\n2. Si VIX ≥ 20 Y yields_up=true Y TLT_20d < -2% → "INFLACIÓN" (yields suben, TLT cae)\n3. Si VIX ≥ 20 Y GLD_20d > +3% Y yields NO bajan → "GEOPOLÍTICA" (oro sube sin flight-to-bonds)\n4. Si VIX ≥ 20 Y yield_10Y_20d < -0.3% → "PÁNICO" (yields bajan = flight-to-safety)\n5. Si VIX ≥ 20 Y ninguna de las anteriores → "SIN CLASIFICAR" (señales mixtas)\n\nDonde: yields_up = yield_10Y cambió >+0.3% en 20d, TLT_20d = cambio de TLT en 20 días, GLD_20d = cambio de GLD en 20 días.',
+                states: [
+                    ['🟢 Sin estrés', 'VIX < 20. Sin crisis. Refugio: mantener momentum.'],
+                    ['🚨 Pánico', 'VIX≥20 + yield_10Y baja >0.3% en 20d. Refugio: 50% TLT + 50% GLD.'],
+                    ['🚨 Inflación', 'VIX≥20 + yields suben + TLT cae >2%. Refugio: 70% GLD + 30% SHY. ¡NO TLT!'],
+                    ['🚨 Geopolítica', 'VIX≥20 + GLD sube >3% + yields NO bajan. Refugio: 60% GLD + 40% TLT.'],
+                    ['⚠️ Sin clasificar', 'VIX≥20 pero señales mixtas. Refugio cauteloso: 40% GLD + 30% TLT + 30% SHY.'],
+                ],
+                tip: 'Los umbrales (20 para VIX, ±0.3% para yields, ±2-3% para TLT/GLD) vienen de nuestro backtest de 19 periodos históricos (2004-2026). El sistema intenta replicar lo que históricamente ha funcionado como combinación de señales, pero no es infalible — por eso el prompt de Gemini sirve como "segunda opinión".',
+            },
+            MOMENTUM_SCORE: {
+                icon: '🏆', title: 'Score de Momentum — ¿Cuánto mejora esta empresa?',
+                what: 'Puntuación de 0 a 6 que mide cuánto están MEJORANDO los fundamentales de una empresa, trimestre a trimestre. NO mide si la acción sube, sino si el NEGOCIO va a mejor.',
+                states: [
+                    ['●●●●●● Score 5-6', 'EXCEPCIONAL. Todos los indicadores mejorando: ingresos crecen, beneficios suben, márgenes mejoran, la deuda baja. Empresa en racha.'],
+                    ['●●●●○○ Score 3-4', 'BUENO. Mayoría de fundamentales mejorando. Empresa sólida.'],
+                    ['●●○○○○ Score 1-2', 'REGULAR. Mejora limitada o estancamiento. Vigilar.'],
+                    ['○○○○○○ Score 0', 'DÉBIL. Los fundamentales se deterioran. Considerar salir.'],
+                ],
+                tip: 'Nuestra estrategia compra las empresas con MAYOR score y vende las de menor. La idea: empresas cuyos fundamentales mejoran tienden a subir en los meses siguientes.',
+            },
+            REV_QOQ: {
+                icon: '📊', title: 'Revenue QoQ — ¿Crecen los ingresos?',
+                what: 'Crecimiento de los ingresos (ventas) del último trimestre respecto al anterior. Es la métrica MÁS importante de crecimiento: ¿la empresa está vendiendo más que antes?',
+                states: [
+                    ['Verde (+)', 'Los ingresos crecen. La empresa vende más. Señal positiva.'],
+                    ['Rojo (-)', 'Los ingresos caen. Problema: la empresa vende menos. Puede ser temporal (estacional) o preocupante.'],
+                ],
+                tip: 'Un revenue QoQ de +20% es excepcional. +5-10% es sólido. Negativo es preocupante si son varios trimestres seguidos.',
+            },
+            EPS: {
+                icon: '💰', title: 'EPS Growth — ¿Crecen los beneficios?',
+                what: 'Crecimiento de los Earnings Per Share (beneficios por acción). Mide si la empresa es cada vez MÁS rentable. Incluye eficiencia operativa y recompra de acciones.',
+                states: [
+                    ['Verde (+)', 'Los beneficios crecen. La empresa gana más por cada acción. Muy positivo.'],
+                    ['Rojo (-)', 'Los beneficios caen. Ojo: puede ser temporal (inversión fuerte) o preocupante (pérdida de competitividad).'],
+                    ['— (sin dato)', 'No hay datos suficientes para calcular. Normal en empresas con menor cobertura.'],
+                ],
+                tip: 'EPS puede crecer aunque los ingresos no crezcan (mejorando eficiencia o recomprando acciones). Lo ideal es que AMBOS crezcan.',
+            },
+            FROM_HIGH: {
+                icon: '📉', title: 'vs Max — ¿Cuánto ha caído desde máximos?',
+                what: 'Distancia entre el precio actual y el máximo de los últimos 3 meses. Te dice si la acción está "barata" respecto a su reciente historia.',
+                states: [
+                    ['0% a -5%', 'Cerca de máximos. La tendencia alcista sigue intacta.'],
+                    ['-5% a -10%', 'Corrección leve. Normal y saludable.'],
+                    ['-10% a -20%', 'Corrección significativa. Puede ser oportunidad si los fundamentales están bien.'],
+                    ['Peor que -20%', '⚠️ Caída fuerte. Investigar por qué antes de comprar.'],
+                ],
+                tip: 'Una acción con buen momentum score pero -15% desde máximos puede ser una gran oportunidad: los fundamentales mejoran pero el precio aún no lo refleja.',
+            },
+            VOL: {
+                icon: '🎢', title: 'Volatilidad — ¿Cuánto se mueve el precio?',
+                what: 'Mide cuánto sube y baja el precio de la acción día a día, expresado como porcentaje anual. Mayor volatilidad = más riesgo = más movimiento.',
+                states: [
+                    ['< 20%', 'BAJA volatilidad. Acción estable (tipo Coca-Cola). Movimientos pequeños.'],
+                    ['20-40%', 'NORMAL para acciones de growth/tech. Espera movimientos de ±2% al día.'],
+                    ['> 40%', 'MUY VOLÁTIL. Puede subir o bajar un 3-5% en un día. Alto riesgo. Solo para quien aguante.'],
+                    ['> 80%', '⚠️ EXTREMO. Típico de criptos o acciones very small cap con alta especulación.'],
+                ],
+                tip: 'No confundir volatilidad con "malo". NVIDIA tiene ~46% de volatilidad y ha multiplicado por 10 en 3 años. Solo es riesgo de CORTO plazo.',
+            },
+            FRED: {
+                icon: '🏛️', title: 'Datos FRED — Indicadores del gobierno',
+                what: 'FRED (Federal Reserve Economic Data) es la base de datos de la Reserva Federal de EEUU. Contiene datos oficiales de inflación, desempleo, tipos de interés, etc. Son datos económicos REALES — no opiniones ni predicciones.',
+                states: [
+                    ['CPI alto (>3%)', 'INFLACIÓN. Los precios suben rápido. La Fed sube tipos → malo para TLT y growth.'],
+                    ['Desempleo bajo (<4%)', 'ECONOMÍA FUERTE. Las empresas contratan. Bueno para acciones.'],
+                    ['Desempleo alto (>6%)', 'RECESIÓN. La Fed baja tipos → bueno para TLT.'],
+                    ['High Yield Spread >6%', 'ESTRÉS CREDITICIO. Las empresas con deuda están en problemas. Posible crisis financiera.'],
+                ],
+                tip: 'Estos datos se actualizan mensualmente (no diariamente), así que pueden no reflejar cambios muy recientes. Pero son la BASE de la política de la Fed.',
+            },
+            PROMPT: {
+                icon: '🤖', title: 'Prompt para Gemini — Pedir consejo experto',
+                what: 'Este bloque de texto contiene TODOS los datos del dashboard formateados para copiarlos y pegarlos en Gemini (o ChatGPT). Le hemos dado al LLM el rol de "analista de mercados experto" para que interprete las señales con sentido común humano.',
+                states: [
+                    ['Cómo usarlo', '1. Click en "Copiar prompt"\n2. Abre Gemini (gemini.google.com)\n3. Pega el texto\n4. Lee la respuesta\n5. Usa tu criterio — el LLM da contexto, tú decides'],
+                ],
+                tip: 'El prompt incluye 8 preguntas diseñadas para extraer MÁXIMO valor del LLM: diagnóstico, refugio, precedentes históricos, vulnerabilidades, z-scores, riesgos, selección de 5 acciones, y contradicciones.',
+            },
+            MODEL_HEALTH: {
+                icon: '🔬', title: 'Salud del Modelo — ¿Estamos overfiteados?',
+                what: 'Esta sección monitoriza 6 "witnesses" (testigos) que detectan si las condiciones actuales del mercado son MUY DIFERENTES de las condiciones en las que calibramos nuestro modelo.\n\nSi los witnesses están en rojo, significa que nuestros umbrales y reglas pueden NO funcionar en el régimen actual, porque fueron calibrados en un régimen diferente.',
+                states: [
+                    ['🟢 OK', 'El witness está dentro del rango esperado. El modelo opera en condiciones similares a las del backtest.'],
+                    ['🟡 Warning', 'El witness detecta algo inusual. No es crítico pero hay que vigilar.'],
+                    ['🔴 Alerta', 'El witness detecta una desviación FUERTE. Las premisas del modelo pueden estar ROTAS. Leer los detalles para decidir qué hacer.'],
+                ],
+                tip: 'Si hay 0 alertas rojas → confía en el modelo. Si hay 1-2 warnings → vigila. Si hay 1+ alertas rojas → lee cada una, entiende QUÉ premisa se rompe, y ajusta manualmente (por ejemplo, si SPY-TLT correlación es positiva, NO uses TLT como refugio).',
+            },
+        };
+
+        function showGlossary(key) {
+            const g = GLOSSARY[key];
+            if (!g) return;
+            let states = '';
+            (g.states || []).forEach(([label, text]) => {
+                states += `<div class="modal-state">
+                <span class="modal-state-label">${label}</span>
+                <span class="modal-state-text">${text}</span>
+            </div>`;
+            });
+            document.getElementById('modal-body').innerHTML = `
+            <div class="modal-title">${g.icon} ${g.title}</div>
+            <div class="modal-section">
+                <div class="modal-section-title">¿Qué es esto?</div>
+                <div class="modal-text">${g.what}</div>
+            </div>
+            <div class="modal-section">
+                <div class="modal-section-title">¿Qué significan los valores?</div>
+                ${states}
+            </div>
+            ${g.tip ? `<div class="modal-tip">
+                <div class="modal-tip-title">💡 ¿Qué hago con esta información?</div>
+                <div class="modal-tip-text">${g.tip}</div>
+            </div>` : ''}
+        `;
+            document.getElementById('modal-overlay').classList.add('active');
+        }
+
+        function closeModal(e) {
+            if (e.target === document.getElementById('modal-overlay'))
+                document.getElementById('modal-overlay').classList.remove('active');
+        }
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') document.getElementById('modal-overlay').classList.remove('active');
+        });
+
+        function infoBtn(key) {
+            return `<span class="info-btn" onclick="showGlossary('${key}')" title="¿Qué es esto?">?</span>`;
+        }
+
+        // ── Helpers ──
+        function chgClass(v) { return v > 0.001 ? 'positive' : (v < -0.001 ? 'negative' : 'neutral'); }
+        function chgTag(v, l) { const c = v > 0.001 ? 'chg-pos' : (v < -0.001 ? 'chg-neg' : ''); return `<span class="chg-tag ${c}">${l}: ${(v * 100).toFixed(1)}%</span>`; }
+        function fmtPrice(p) { if (p > 10000) return p.toLocaleString('en-US', { minimumFractionDigits: 0 }); if (p > 100) return p.toFixed(1); return p.toFixed(2); }
+        function scoreBar(s, max = 6) { let d = ''; for (let i = 0; i < max; i++) { const a = i < s ? 'active' : ''; const h = s >= 5 ? 'high' : ''; d += `<span class="score-dot ${a} ${h}"></span>`; } return `<span class="score-bar">${d}</span>`; }
+
+        async function fetchData(force = false) {
+            const r = await fetch(force ? '/api/refresh' : '/api/snapshot');
+            DATA = await r.json();
+            renderDashboard();
+        }
+
+        function refreshData() {
+            document.getElementById('dashboard').innerHTML = `<div class="loading"><div class="spinner"></div> Actualizando datos...</div>`;
+            fetchData(true);
+        }
+
+        function renderHealthSummary() {
+            if (!DATA || !DATA.health) return '';
+            const s = DATA.health.summary || {};
+            let parts = [];
+            if (s.alerts > 0) parts.push(`<span class="health-count alert-count">🔴 ${s.alerts} alertas</span>`);
+            if (s.warnings > 0) parts.push(`<span class="health-count warning-count">🟡 ${s.warnings} warnings</span>`);
+            if (s.ok > 0) parts.push(`<span class="health-count ok-count">🟢 ${s.ok} OK</span>`);
+            return parts.join('');
+        }
+
+        function renderHealthAlerts() {
+            if (!DATA || !DATA.health) return '<div style="color:var(--text-muted)">Sin datos de salud</div>';
+            const alerts = DATA.health.alerts || [];
+            if (alerts.length === 0) return '<div style="color:var(--text-muted)">Sin witnesses disponibles</div>';
+            // Sort: alerts first, then warnings, then ok
+            const order = { alert: 0, warning: 1, ok: 2 };
+            alerts.sort((a, b) => (order[a.severity] || 2) - (order[b.severity] || 2));
+            return alerts.map((a, i) => `
+                <div class="health-alert sev-${a.severity}">
+                    <div class="health-alert-header" onclick="toggleHealth(${i})">
+                        <span class="health-alert-title">${a.title}</span>
+                        <span class="health-alert-toggle" id="htoggle-${i}">▶</span>
+                    </div>
+                    <div class="health-alert-body" id="hbody-${i}">
+                        <div class="health-label">Detalle</div>
+                        <div>${a.detail}</div>
+                        <div class="health-label">Implicación para tu cartera</div>
+                        <div>${a.implication}</div>
+                        <div class="health-label">Cómo se calcula</div>
+                        <div>${a.methodology}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleHealth(i) {
+            const body = document.getElementById('hbody-' + i);
+            const toggle = document.getElementById('htoggle-' + i);
+            if (body.classList.contains('open')) {
+                body.classList.remove('open');
+                toggle.textContent = '▶';
+            } else {
+                body.classList.add('open');
+                toggle.textContent = '▼';
+            }
+        }
+
+        function renderDashboard() {
+            if (!DATA) return;
+            const d = DATA, m = d.market || {}, vix = m['^VIX'] || {}, regime = d.regime || {};
+
+            const vixState = regime.vix_state || 'normal';
+            const stateLabels = { calm: '🟢 CALMA', normal: '🟡 NORMAL', stress: '🟠 ESTRÉS', panic: '🔴 PÁNICO' };
+            const badge = document.getElementById('regime-badge');
+            badge.textContent = stateLabels[vixState] || vixState;
+            badge.className = `regime-badge regime-${vixState}`;
+            document.getElementById('timestamp').textContent = new Date(d.timestamp).toLocaleString('es-ES');
+
+            const crisisLabels = {
+                none: { text: '🟢 Sin estrés — todo tranquilo', cls: 'regime-calm' },
+                panic: { text: '🚨 Crisis de Pánico — ¡inversores vendiendo todo!', cls: 'regime-panic' },
+                inflation: { text: '🚨 Crisis de Inflación — los precios suben, la Fed sube tipos', cls: 'regime-stress' },
+                geopolitical: { text: '🚨 Crisis Geopolítica — tensión política o comercial', cls: 'regime-stress' },
+                unclassified: { text: '⚠️ Estrés sin clasificar — señales mixtas, cautela', cls: 'regime-normal' },
+            };
+            const crisis = crisisLabels[regime.crisis_type] || crisisLabels.unclassified;
+
+            const instruments = ['SPY', 'QQQ', 'IWM', 'TLT', 'SHY', 'GLD', 'UUP'].map(tk => {
+                const inst = m[tk]; if (!inst) return '';
+                return `<div class="instrument">
+                <div class="instrument-header"><div class="instrument-ticker">${tk}</div>${infoBtn(tk)}</div>
+                <div class="instrument-name">${inst.desc}</div>
+                <div class="instrument-price">$${fmtPrice(inst.price)}</div>
+                <div class="instrument-changes">${chgTag(inst.chg_1d, '1d')} ${chgTag(inst.chg_5d, '5d')} ${chgTag(inst.chg_20d, '20d')}</div>
+            </div>`;
+            }).join('');
+
+            const yields = d.yields || {};
+            let yieldRows = '', spread = '';
+            ['3M', '5Y', '10Y', '30Y'].forEach(label => {
+                const y = yields[label]; if (!y) return;
+                const arrow = y.chg_1w > 0.05 ? '↑' : (y.chg_1w < -0.05 ? '↓' : '→');
+                const key = label === '10Y' ? 'YIELD_10Y' : null;
+                yieldRows += `<div class="yield-row">
+                <span class="yield-label">${label} ${key ? infoBtn(key) : ''}</span>
+                <span><span class="yield-value">${y.yield.toFixed(2)}%</span><span class="yield-change ${chgClass(y.chg_1w)}">${arrow} ${y.chg_1w > 0 ? '+' : ''}${y.chg_1w.toFixed(2)}%</span></span>
+            </div>`;
+            });
+            if (yields['10Y'] && yields['3M']) {
+                const sp = yields['10Y'].yield - yields['3M'].yield;
+                spread = `<div class="yield-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+                <span class="yield-label" style="font-weight:600">Spread 10Y-3M ${infoBtn('YIELD_CURVE')}</span>
+                <span class="yield-value ${sp < 0 ? 'negative' : 'positive'}">${sp > 0 ? '+' : ''}${sp.toFixed(2)}%</span>
+            </div>`;
+            }
+
+            const fred = d.fred || {};
+            let fredItems = '';
+            Object.values(fred).forEach(f => {
+                const c = f.value - f.prev_value;
+                const arrow = c > 0 ? '↑' : (c < 0 ? '↓' : '→');
+                fredItems += `<div class="fred-item">
+                <div class="fred-name">${f.name} ${infoBtn('FRED')}</div>
+                <div class="fred-value-row"><span class="fred-val">${f.value.toFixed(2)}</span><span class="fred-chg ${chgClass(c)}">${arrow} ${Math.abs(c).toFixed(2)}</span></div>
+            </div>`;
+            });
+
+            const ref = regime.refuge || {};
+            let signals = '';
+            signals += `<div class="signal-item"><span class="signal-label">TLT viable ${infoBtn('TLT_VIABLE')}</span><span class="signal-value ${ref.tlt_viable ? 'positive' : 'negative'}">${ref.tlt_viable ? '✅ Sí' : '❌ No'}</span></div>`;
+            signals += `<div class="signal-item"><span class="signal-label">GLD viable ${infoBtn('GLD_VIABLE')}</span><span class="signal-value ${ref.gld_viable ? 'positive' : 'negative'}">${ref.gld_viable ? '✅ Sí' : '❌ No'}</span></div>`;
+            signals += `<div class="signal-item"><span class="signal-label">Solo cash</span><span class="signal-value ${ref.cash_only ? 'negative' : 'positive'}">${ref.cash_only ? '⚠️ Sí' : '🟢 No'}</span></div>`;
+
+            const stocks = d.stocks || [];
+            const sectors = d.sectors || {};
+
+            // Sector emoji mapping
+            const sectorEmoji = {
+                'Technology': '💻', 'Financial Services': '🏦',
+                'Healthcare': '🏥', 'Consumer Cyclical': '🛍️',
+                'Consumer Defensive': '🛒', 'Energy': '⛽',
+                'Industrials': '🏗️', 'Communication Services': '📡',
+                'Basic Materials': '⛏️', 'Real Estate': '🏠', 'Utilities': '⚡'
+            };
+
+            function renderSectorStocks() {
+                const sectorNames = Object.keys(sectors).sort();
+                if (sectorNames.length === 0) return '<div style="color:var(--text-muted)">Sin datos de sectores</div>';
+                return sectorNames.map((sec, si) => {
+                    const stks = sectors[sec] || [];
+                    const emoji = sectorEmoji[sec] || '📊';
+                    const top5 = stks.slice(0, 5);
+                    const rest = stks.slice(5);
+                    const rows = (list, offset) => list.map((s, i) => {
+                        const eps = s.eps_growth != null ? `${(s.eps_growth * 100).toFixed(0)}%` : '—';
+                        return `<tr>
+                            <td style="font-weight:600">${offset + i + 1}</td>
+                            <td style="font-weight:700;color:var(--blue)" title="${s.industry || ''}">${s.ticker}</td>
+                            <td>${scoreBar(s.score)}</td>
+                            <td class="${chgClass(s.rev_qoq)}">${(s.rev_qoq * 100).toFixed(0)}%</td>
+                            <td>${eps}</td>
+                            <td>${s.price ? '$' + fmtPrice(s.price) : '—'}</td>
+                            <td class="${chgClass(s.chg_20d || 0)}">${s.chg_20d != null ? (s.chg_20d * 100).toFixed(1) + '%' : '—'}</td>
+                            <td>${s.vol_20d ? s.vol_20d.toFixed(0) + '%' : '—'}</td>
+                        </tr>`;
+                    }).join('');
+
+                    return `
+                    <div class="sector-group">
+                        <div class="sector-header" onclick="toggleSector(${si})">
+                            <span>${emoji} ${sec} <span style="color:var(--text-muted);font-weight:400">(${stks.length})</span></span>
+                            <span class="health-alert-toggle" id="stoggle-${si}">▶</span>
+                        </div>
+                        <div class="sector-body" id="sbody-${si}">
+                            <table class="stocks-table">
+                                <thead><tr>
+                                    <th>#</th><th>Ticker</th><th>Score</th><th>Rev</th><th>EPS</th>
+                                    <th>Precio</th><th>20d</th><th>Vol</th>
+                                </tr></thead>
+                                <tbody>${rows(top5, 0)}</tbody>
+                            </table>
+                            ${rest.length > 0 ? `
+                                <div class="sector-expand" id="sexpand-${si}" onclick="expandSector(${si})">
+                                    Ver ${rest.length} más ▼
+                                </div>
+                                <div class="sector-rest" id="srest-${si}" style="display:none">
+                                    <table class="stocks-table"><tbody>${rows(rest, 5)}</tbody></table>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+
+            document.getElementById('dashboard').innerHTML = `
+            <div class="card vix-card">
+                <div class="card-title">📈 VIX Gate ${infoBtn('VIX')}</div>
+                <div class="vix-big ${vixState === 'stress' || vixState === 'panic' ? 'negative' : (vixState === 'calm' ? 'positive' : 'neutral')}">${vix.price ? vix.price.toFixed(1) : '—'}</div>
+                <div class="vix-detail">
+                    MA20: ${vix.ma20 ? vix.ma20.toFixed(1) : '—'} ${infoBtn('MA20')} · MA50: ${vix.ma50 ? vix.ma50.toFixed(1) : '—'}
+                    <br>1d: <span class="${chgClass(vix.chg_1d)}">${vix.chg_1d ? (vix.chg_1d * 100).toFixed(1) : 0}%</span>
+                    · 5d: <span class="${chgClass(vix.chg_5d)}">${vix.chg_5d ? (vix.chg_5d * 100).toFixed(1) : 0}%</span>
+                    · 20d: <span class="${chgClass(vix.chg_20d)}">${vix.chg_20d ? (vix.chg_20d * 100).toFixed(1) : 0}%</span>
+                </div>
+                <div class="chart-container"><canvas id="vix-chart"></canvas></div>
+            </div>
+
+            <div class="card yields-card">
+                <div class="card-title">📉 Curva de Tipos ${infoBtn('YIELD_CURVE')}</div>
+                ${yieldRows}${spread}
+                <div class="chart-container" style="margin-top:12px"><canvas id="yield-chart"></canvas></div>
+            </div>
+
+            <div class="card regime-card">
+                <div class="card-title">🎯 Diagnóstico ${infoBtn('CRISIS_TYPE')}</div>
+                <div class="crisis-type ${crisis.cls}">${crisis.text}</div>
+                <div class="refuge-rec">
+                    <div class="refuge-rec-title">Refugio recomendado</div>
+                    <div class="refuge-rec-text">${regime.recommended_refuge || '—'}</div>
+                </div>
+                ${signals}
+            </div>
+
+            <div class="card health-card">
+                <div class="card-title">🔬 Salud del Modelo ${infoBtn('MODEL_HEALTH')} <span class="health-summary">${renderHealthSummary()}</span></div>
+                ${renderHealthAlerts()}
+            </div>
+
+            <div class="card instruments-card">
+                <div class="card-title">🏦 Instrumentos</div>
+                <div class="instruments-grid">${instruments}</div>
+            </div>
+
+            <div class="card fred-card">
+                <div class="card-title">🏛️ Macro (FRED) ${infoBtn('FRED')}</div>
+                ${fredItems || '<div style="color:var(--text-muted)">Sin datos FRED</div>'}
+            </div>
+
+            <div class="card stocks-card">
+                <div class="card-title">🏆 Momentum por Sector ${infoBtn('MOMENTUM_SCORE')} <span style="color:var(--text-muted);font-size:0.8em">(Top 5/sector = ${stocks.length} acciones)</span></div>
+                ${renderSectorStocks()}
+            </div>
+
+            <div class="card prompt-card">
+                <div class="card-title" style="justify-content:space-between">
+                    <span>🤖 Prompt para Gemini ${infoBtn('PROMPT')}</span>
+                    <div>
+                        <span id="copy-feedback" class="copy-feedback">✅ Copiado</span>
+                        <button class="btn" onclick="copyCalendar()" title="Prompt para pedir eventos y fechas clave">📅 Calendario</button>
+                        <button class="btn btn-primary" onclick="copyPrompt()">📋 Copiar prompt</button>
+                    </div>
+                </div>
+                <div class="prompt-text" id="prompt-text">Cargando prompt...</div>
+            </div>
+        `;
+
+            renderVixChart(vix);
+            renderYieldChart(yields);
+            loadPrompt();
+        }
+
+        function renderVixChart(vix) {
+            const ctx = document.getElementById('vix-chart');
+            if (!ctx || !vix.history) return;
+            const labels = vix.dates || vix.history.map((_, i) => i);
+            const ma20 = vix.history.map((_, i, a) => i < 19 ? null : a.slice(i - 19, i + 1).reduce((x, y) => x + y, 0) / 20);
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels.map(d => typeof d === 'string' ? d.slice(5) : d), datasets: [
+                        { label: 'VIX', data: vix.history, borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.1)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.3 },
+                        { label: 'MA20', data: ma20, borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, borderDash: [5, 3] },
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(48,54,61,0.5)' }, ticks: { color: '#8b949e', font: { size: 10 } } } } }
+            });
+        }
+
+        function renderYieldChart(yields) {
+            const ctx = document.getElementById('yield-chart'); if (!ctx) return;
+            const labels = ['3M', '5Y', '10Y', '30Y'];
+            const values = labels.map(l => yields[l] ? yields[l].yield : null);
+            new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets: [{ label: 'Yield Curve', data: values, borderColor: '#e3b341', backgroundColor: 'rgba(227,179,65,0.1)', fill: true, borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#e3b341', tension: 0.3 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#8b949e' } }, y: { grid: { color: 'rgba(48,54,61,0.5)' }, ticks: { color: '#8b949e', callback: v => v.toFixed(1) + '%' } } } }
+            });
+        }
+
+        async function loadPrompt() {
+            try { const r = await fetch('/api/prompt'); const t = await r.text(); const e = document.getElementById('prompt-text'); if (e) e.textContent = t; }
+            catch (e) { const el = document.getElementById('prompt-text'); if (el) el.textContent = 'Error cargando prompt'; }
+        }
+
+        function copyPrompt() {
+            navigator.clipboard.writeText(document.getElementById('prompt-text').textContent).then(() => {
+                const f = document.getElementById('copy-feedback'); f.style.display = 'inline'; setTimeout(() => f.style.display = 'none', 2000);
+            });
+        }
+
+        function copyCalendar() {
+            fetch('/api/calendar-prompt')
+                .then(r => r.text())
+                .then(text => {
+                    navigator.clipboard.writeText(text).then(() => {
+                        const f = document.getElementById('copy-feedback');
+                        f.textContent = '📅 Calendario copiado!';
+                        f.style.display = 'inline';
+                        setTimeout(() => { f.style.display = 'none'; f.textContent = '✅ Copiado'; }, 2000);
+                    });
+                });
+        }
+
+        function toggleSector(i) {
+            const body = document.getElementById('sbody-' + i);
+            const toggle = document.getElementById('stoggle-' + i);
+            if (body.classList.contains('open')) {
+                body.classList.remove('open');
+                toggle.textContent = '▶';
+            } else {
+                body.classList.add('open');
+                toggle.textContent = '▼';
+            }
+        }
+
+        function expandSector(i) {
+            const rest = document.getElementById('srest-' + i);
+            const btn = document.getElementById('sexpand-' + i);
+            if (rest.style.display === 'none') {
+                rest.style.display = 'block';
+                btn.textContent = 'Ocultar ▲';
+            } else {
+                rest.style.display = 'none';
+                btn.textContent = btn.textContent.replace('Ocultar ▲', 'Ver más ▼');
+            }
+        }
+
+        fetchData();
+    </script>
+</body>
+
+</html>

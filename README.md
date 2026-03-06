@@ -2,6 +2,20 @@
 
 Water-landscape model on a hierarchical fractional graph with multi-currency monetary fields.
 
+## 🚀 Quick Start
+
+```bash
+# Activar entorno
+source .venv/bin/activate
+
+# Lanzar dashboard
+PYTHONPATH=. python dashboard/api.py
+# → Abrir http://localhost:8050
+
+# Señal diaria
+PYTHONPATH=. python strategy/daily_signal.py
+```
+
 ## The Equation
 
 $$\gamma \cdot m'' + m' = -\alpha \cdot L_z^s \cdot m + f_i(t) + \Omega_i(t) + v(t)$$
