@@ -249,6 +249,39 @@ def _section_sentiment(data):
     return '\n'.join(lines)
 
 
+def _section_regime_hmm(data):
+    """Generate HMM regime section."""
+    hmm = data.get('hmm_regime', {})
+    if not hmm or 'current_regime' not in hmm:
+        return ""
+
+    regime = hmm['current_regime'].upper()
+    emoji = {'BULL': '🟢', 'NEUTRAL': '🟡', 'BEAR': '🔴'}.get(regime, '⚪')
+    lines = [f"═══ RÉGIMEN DE MERCADO (HMM) ═══"]
+    lines.append(f"  {emoji} Régimen actual: {regime}")
+
+    probs = hmm.get('probabilities', {})
+    lines.append(f"  Probabilidades: bull={probs.get('bull',0):.0%} | "
+                 f"neutral={probs.get('neutral',0):.0%} | "
+                 f"bear={probs.get('bear',0):.0%}")
+
+    trans = hmm.get('transition_1w', {})
+    lines.append(f"  Transición 1 semana: → bull {trans.get('bull',0):.0%} | "
+                 f"→ neutral {trans.get('neutral',0):.0%} | "
+                 f"→ bear {trans.get('bear',0):.0%}")
+
+    stats = hmm.get('stats', {})
+    for name in ['bull', 'neutral', 'bear']:
+        s = stats.get(name, {})
+        if s:
+            lines.append(f"  {name}: ret={s.get('annual_return',0):+.0%}/yr, "
+                         f"vol={s.get('annual_vol',0):.0%}, "
+                         f"duración media={s.get('avg_duration_days',0):.0f}d, "
+                         f"% tiempo={s.get('pct_time',0):.0%}")
+
+    return '\n'.join(lines)
+
+
 def build_prompt(snapshot, sections=None):
     """
     Build the complete LLM prompt from a snapshot dict.
@@ -265,8 +298,8 @@ def build_prompt(snapshot, sections=None):
     """
     if sections is None:
         sections = ['context', 'market', 'yields', 'fred',
-                    'headlines', 'sentiment', 'system', 'stocks',
-                    'portfolio', 'questions']
+                    'headlines', 'sentiment', 'regime_hmm', 'system',
+                    'stocks', 'portfolio', 'questions']
 
     parts = []
 
@@ -289,6 +322,11 @@ def build_prompt(snapshot, sections=None):
 
     if 'sentiment' in sections:
         parts.append(_section_sentiment(snapshot))
+
+    if 'regime_hmm' in sections:
+        rhmm = _section_regime_hmm(snapshot)
+        if rhmm:
+            parts.append(rhmm)
 
     if 'system' in sections:
         sys_section = _section_system(snapshot)

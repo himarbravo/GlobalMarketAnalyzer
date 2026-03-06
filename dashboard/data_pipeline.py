@@ -901,6 +901,17 @@ class DashboardPipeline:
         print("  → Regime classification...", flush=True)
         regime = self.classify_regime(market)
 
+        # HMM-based regime detection
+        hmm_regime = {}
+        try:
+            from ml.regime_hmm import RegimeHMM
+            print("  → HMM regime detection...", flush=True)
+            hmm = RegimeHMM(lookback='2y')
+            hmm.fit()
+            hmm_regime = hmm.predict_regime()
+        except Exception:
+            pass
+
         print("  → Model health checks...", flush=True)
         health = self.compute_model_health(market)
 
@@ -939,6 +950,7 @@ class DashboardPipeline:
             'fear_greed': fear_greed,
             'etf_flows': etf_flows,
             'regime': regime,
+            'hmm_regime': hmm_regime,
             'health': health,
             'stocks': stocks,
             'sectors': sectors,
