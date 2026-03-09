@@ -14,6 +14,22 @@ PYTHONPATH=. python dashboard/api.py
 
 # Señal diaria
 PYTHONPATH=. python strategy/daily_signal.py
+
+# Bot premium Telegram (resumen + diagnóstico Gemini + gráficas)
+PYTHONPATH=. python strategy/telegram_premium_bot.py --telegram
+```
+
+## Variables de Entorno (LLM + Telegram)
+
+```bash
+# Gemini (API key de Google AI Studio)
+export GEMINI_API_KEY="tu_api_key"
+# Opcional: modelo Gemini (default: gemini-1.5-flash)
+export GEMINI_MODEL="gemini-1.5-flash"
+
+# Telegram bot
+export TELEGRAM_BOT_TOKEN="tu_bot_token"
+export TELEGRAM_CHAT_ID="tu_chat_id"
 ```
 
 ## The Equation

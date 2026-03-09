@@ -11,8 +11,9 @@ Usage:
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from flask import Flask, jsonify, render_template, Response
+from flask import Flask, jsonify, render_template, Response, request
 from dashboard.data_pipeline import DashboardPipeline
+from strategy.gemini_client import build_market_diagnosis, GeminiError
 
 app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -51,6 +52,29 @@ def api_prompt():
     snapshot = _get_snapshot()
     prompt = pipeline.build_llm_prompt(snapshot)
     return Response(prompt, mimetype='text/plain; charset=utf-8')
+
+
+@app.route('/api/diagnosis', methods=['POST'])
+def api_diagnosis():
+    """Generate Gemini diagnosis directly from current dashboard snapshot."""
+    payload = request.get_json(silent=True) or {}
+    snapshot = _get_snapshot(force=bool(payload.get('force_refresh', False)))
+    prompt = pipeline.build_llm_prompt(snapshot)
+
+    model = payload.get('model')
+    try:
+        diagnosis = build_market_diagnosis(prompt, model=model)
+    except GeminiError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': f'Error interno: {exc}'}), 500
+
+    return jsonify({
+        'ok': True,
+        'model': model or 'default',
+        'diagnosis': diagnosis,
+        'timestamp': snapshot.get('timestamp'),
+    })
 
 
 @app.route('/api/stocks')

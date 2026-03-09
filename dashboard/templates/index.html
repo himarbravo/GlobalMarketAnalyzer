@@ -720,6 +720,30 @@
             font-weight: 500;
         }
 
+        .diag-status {
+            display: none;
+            color: var(--text-muted);
+            font-size: 13px;
+            margin-top: 10px;
+        }
+
+        .diag-status.error {
+            color: var(--red);
+        }
+
+        .diagnosis-text {
+            margin-top: 12px;
+            background: rgba(17, 24, 39, 0.65);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            min-height: 80px;
+        }
+
         .positive {
             color: var(--green);
         }
@@ -1314,10 +1338,13 @@
                     <div>
                         <span id="copy-feedback" class="copy-feedback">✅ Copiado</span>
                         <button class="btn" onclick="copyCalendar()" title="Prompt para pedir eventos y fechas clave">📅 Calendario</button>
+                        <button class="btn" onclick="generateDiagnosis()" title="Llamada API a Gemini">🧠 Diagnóstico IA</button>
                         <button class="btn btn-primary" onclick="copyPrompt()">📋 Copiar prompt</button>
                     </div>
                 </div>
                 <div class="prompt-text" id="prompt-text">Cargando prompt...</div>
+                <div id="diag-status" class="diag-status"></div>
+                <div id="diagnosis-text" class="diagnosis-text">Pulsa "🧠 Diagnóstico IA" para generar un análisis automático con Gemini usando el prompt completo.</div>
             </div>
         `;
 
@@ -1376,6 +1403,35 @@
                         setTimeout(() => { f.style.display = 'none'; f.textContent = '✅ Copiado'; }, 2000);
                     });
                 });
+        }
+
+        async function generateDiagnosis() {
+            const statusEl = document.getElementById('diag-status');
+            const diagEl = document.getElementById('diagnosis-text');
+            if (!statusEl || !diagEl) return;
+
+            statusEl.className = 'diag-status';
+            statusEl.style.display = 'block';
+            statusEl.textContent = 'Consultando Gemini...';
+            diagEl.textContent = 'Generando diagnóstico...';
+
+            try {
+                const response = await fetch('/api/diagnosis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.error || 'No se pudo generar diagnóstico');
+                }
+                statusEl.style.display = 'none';
+                diagEl.textContent = data.diagnosis || 'Sin diagnóstico';
+            } catch (err) {
+                statusEl.className = 'diag-status error';
+                statusEl.textContent = `Error: ${err.message}`;
+                diagEl.textContent = 'No se pudo generar el diagnóstico. Revisa GEMINI_API_KEY y vuelve a intentar.';
+            }
         }
 
         function toggleSector(i) {

@@ -1,0 +1,20 @@
+{
+  "mode": "market",
+  "n_rebalances": 13,
+  "start": "2025-03-03",
+  "end": "2026-04-06",
+  "portfolio": {
+    "return_total": 0.23010296380091133,
+    "max_drawdown": -0.0914492890375509,
+    "sharpe_approx": 1.6011775935189014
+  },
+  "benchmark_spy": {
+    "return_total": 0.16288847888088687,
+    "max_drawdown": -0.14696962196119612,
+    "sharpe_approx": 0.8737226671511721
+  },
+  "outputs": {
+    "curve_html": "output/llm_paper_trading_curve.html",
+    "alloc_html": "output/llm_paper_trading_allocations.html"
+  }
+}
