@@ -562,6 +562,16 @@ class GraphBuilder:
             self.eigenvectors_prev = self.eigenvectors.copy()
 
         eigenvalues, eigenvectors = np.linalg.eigh(self.L)
+        n_negative = int(np.sum(eigenvalues < 0))
+        if n_negative > 0:
+            import logging
+            logging.getLogger(__name__).debug(
+                "L has %d negative eigenvalue(s) (signed-weight graph); "
+                "clipping to 0 for L^s approximation. "
+                "Spectral identity L^s = Φ·diag(λ^s)·Φ^T holds for the clipped approximation, "
+                "not for the original L. Accuracy degrades when n_negative > N/4.", n_negative
+            )
+        self.n_negative_eigenvalues = n_negative
         eigenvalues = np.maximum(eigenvalues, 0.0)
         idx = np.argsort(eigenvalues)
         self.eigenvalues = eigenvalues[idx]
@@ -608,12 +618,14 @@ class GraphBuilder:
             D_z = np.diag(np.abs(W_zone).sum(axis=1))
             L_z = D_z - W_zone
 
-            # Eigendecomposition
+            # Eigendecomposition — clip negative eigenvalues (signed-weight Laplacian)
             evals, evecs = np.linalg.eigh(L_z)
             evals = np.maximum(evals, 0.0)
             sort_idx = np.argsort(evals)
             evals = evals[sort_idx]
             evecs = evecs[:, sort_idx]
+            # Note: clipped L^s_z = evecs @ diag(evals^s) @ evecs.T is a valid PSD
+            # approximation; original L_z may be indefinite due to anti-correlations.
 
             # Laplaciano fraccional L_z^s
             lam_s = np.power(evals, self.s)

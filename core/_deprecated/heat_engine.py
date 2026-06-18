@@ -546,10 +546,13 @@ class HeatEngine:
         # Ω shifts the equilibrium: m_eq_k += Ω_k / μ_k (safe division)
         m_eq += np.where(mu > 1e-10, omega_k / mu, 0.0)
 
-        # Inertia coefficients (derived from γ)
+        # Inertia coefficients — discrete O-U with Δt=1 day
+        # γ·m''·Δt + m'·Δt = -μ·(m-m_eq)·Δt  →  with Δt=1:
+        # m[t+1] = m[t] + (1-1/γ)·v[t] - (μ/γ)·(m[t]-m_eq)
+        DT = 1.0  # time step in days (all rates calibrated per day)
         gamma = self.gamma
-        momentum_weight = 1.0 - 1.0 / gamma   # 0 when γ=1, →1 when γ→∞
-        revert_weight = mu / gamma             # strong when γ=1, weak when γ→∞
+        momentum_weight = 1.0 - 1.0 / gamma   # (1-1/γ): inertia factor
+        revert_weight = mu * DT / gamma        # (μ/γ)·Δt: reversion per step
 
         # Spectral velocity: v_k[t] = m_k[t] - m_k[t-1]
         spectral_velocity = np.zeros_like(m_k_real)
@@ -631,29 +634,37 @@ class HeatEngine:
                 f_k_est += K_f * innovation
                 P_f = (1.0 - K_f * H_f) * P_f + Q_f
 
-                # Filter 2: α_k (EKF — Jacobian: ∂m/∂α = -(λ^s/γ)·m[t])
-                H_alpha = -(lam_s / max(gamma_est, 0.5)) * m_k_real[t]
+                # Recompute equilibrium with updated f_k_est so filters 2&3 use fresh m_eq
+                mu_t = alpha_k_est * lam_s
+                m_eq_t = np.where(mu_t > 1e-10, f_k_est / mu_t, 0.0) + omega_eq
+                deviation = m_k_real[t] - m_eq_t
+
+                # Filter 2: α_k (EKF — Jacobian: ∂m_pred/∂α = -(λ^s/γ)·(m[t] - m_eq_t))
+                H_alpha = -(lam_s / max(gamma_est, 0.5)) * (m_k_real[t] - m_eq_t)
                 S_alpha = H_alpha**2 * P_alpha + R_obs
                 K_alpha = np.where(S_alpha > 1e-10, H_alpha * P_alpha / S_alpha, 0.0)
                 alpha_k_est += K_alpha * innovation
                 alpha_k_est = np.clip(alpha_k_est, 0.001, 0.1)  # physical bounds
                 P_alpha = (1.0 - K_alpha * H_alpha) * P_alpha + Q_alpha
 
-                # Filter 3: γ (EKF — Jacobian: ∂m/∂γ = (1/γ²)·(v + μ·(m-m_eq)))
+                # Filter 3: γ scalar EKF
+                # ∂m_pred[t+1]_k/∂γ = (v_k + μ_k·dev_k) / γ²  →  H_vec (N,)
+                # Scalar state update: γ += (P·H^T@innov) / (||H||²·P + R)
                 g2 = max(gamma_est, 0.5) ** 2
-                H_gamma_per_mode = (spectral_velocity[t] + mu_t * deviation) / g2
-                # γ is scalar: sum the per-mode sensitivities (weighted by innovation)
-                H_gamma = float(np.sum(H_gamma_per_mode * innovation)) / (np.sum(innovation**2) + 1e-10)
-                innov_gamma = float(np.mean(innovation * H_gamma_per_mode))
-                S_gamma = H_gamma**2 * P_gamma + R_obs
-                K_gamma = H_gamma * P_gamma / (S_gamma + 1e-10)
-                gamma_est += K_gamma * innov_gamma
-                gamma_est = np.clip(gamma_est, 0.5, 30.0)  # physical bounds
-                P_gamma = (1.0 - K_gamma * H_gamma) * P_gamma + Q_gamma
+                H_vec = (spectral_velocity[t] + mu_t * deviation) / g2  # (N,)
+                H_norm_sq = float(np.dot(H_vec, H_vec)) + 1e-10
+                innov_proj = float(np.dot(H_vec, innovation))  # projected scalar innovation
+                S_gamma = H_norm_sq * P_gamma + R_obs
+                K_gamma_s = P_gamma / S_gamma  # scalar gain
+                gamma_est += K_gamma_s * innov_proj
+                gamma_est = np.clip(gamma_est, 0.5, 30.0)
+                P_gamma = (1.0 - K_gamma_s * H_norm_sq) * P_gamma + Q_gamma
 
                 # Diagnostics
                 K_f_accum += np.abs(K_f)
                 n_updates += 1
+
+        self._mu = mu  # store for z-score momentum scaling
 
         # Store adapted parameters
         self.f_k_adapted = f_k_est
@@ -947,23 +958,27 @@ class HeatEngine:
               f"Landscape: {quality_flag}")
 
     def _compute_z_scores(self):
-        """z[i,t] = ε[i,t] / σ_ε[i, rolling]"""
+        """z[i,t] = ε[i,t] / σ_ε[i, rolling(t-1)]  — lagged window prevents lookahead"""
         T_len, N = self.residuals.shape
         self.z_scores = np.zeros_like(self.residuals)
 
         for i in range(N):
             eps_series = pd.Series(self.residuals[:, i])
-            sigma = eps_series.rolling(SIGMA_WINDOW, min_periods=5).std()
-            sigma = sigma.replace(0, np.nan).fillna(eps_series.std())
+            # shift(1): σ[t] uses ε[t-WINDOW..t-1], never ε[t] itself
+            sigma = eps_series.shift(1).rolling(SIGMA_WINDOW, min_periods=5).std()
+            sigma = sigma.replace(0, np.nan).fillna(eps_series.iloc[:int(len(eps_series)*0.7)].std())
             self.z_scores[:, i] = (eps_series / sigma).fillna(0).values
 
         # If momentum forcing is available, also compute adjusted z-scores
         # z_adj = z - momentum_shift: companies with positive momentum
         # get a lower z-score (they SHOULD be higher than equilibrium)
         if hasattr(self, 'momentum_forcing') and len(self.momentum_forcing) == N:
-            # Scale momentum to z-score units (~1σ effect for max momentum)
-            MOMENTUM_Z_SCALE = 1.0
-            z_adjustment = self.momentum_forcing * MOMENTUM_Z_SCALE
+            # Momentum shifts equilibrium: Δm_eq = Δf/μ → Δz = Δf/(μ·σ_residual)
+            mu_mean = float(np.mean(self._mu[self._mu > 1e-10])) \
+                if hasattr(self, '_mu') and np.any(self._mu > 1e-10) else 1.0
+            sigma_safe = np.where(self.sigma_residual > 1e-10, self.sigma_residual, 1.0)
+            z_adjustment = self.momentum_forcing / (mu_mean * sigma_safe)
+            z_adjustment = np.clip(z_adjustment, -2.0, 2.0)  # safety bound
             self.z_scores_adjusted = self.z_scores - z_adjustment[np.newaxis, :]
         else:
             self.z_scores_adjusted = self.z_scores.copy()
