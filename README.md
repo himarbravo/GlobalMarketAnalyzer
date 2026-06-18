@@ -2,22 +2,64 @@
 
 Water-landscape model on a hierarchical fractional graph with multi-currency monetary fields.
 
-## 🚀 Quick Start
+## Setup
 
 ```bash
-# Activar entorno
-source .venv/bin/activate
-
-# Lanzar dashboard
-PYTHONPATH=. python dashboard/api.py
-# → Abrir http://localhost:8050
-
-# Señal diaria
-PYTHONPATH=. python strategy/daily_signal.py
-
-# Bot premium Telegram (resumen + diagnóstico Gemini + gráficas)
-PYTHONPATH=. python strategy/telegram_premium_bot.py --telegram
+git clone https://github.com/himarbravo/GlobalMarketAnalyzer.git
+cd GlobalMarketAnalyzer
+python -m venv .venv && .venv/bin/pip install -e .
+cp .env.example .env   # fill in API keys
 ```
+
+Required keys (see `.env.example`): `FRED_API_KEY`, and at least one of `GEMINI_API_KEY` or `GROQ_API_KEY`.
+
+---
+
+## ☀️ Tu flujo diario (30 segundos)
+
+### 1. Ejecutar el pipeline + LLM
+
+```bash
+python strategy/daily_build_cache.py
+```
+
+**Lo que pasa automáticamente:**
+- ⚙️ Pipeline: descarga datos, calcula Markowitz, evalúa régimen (~30s)
+- 📋 Copia el prompt analítico al portapapeles
+- 💬 Abre ChatGPT / Gemini
+
+**Lo que haces tú:**
+1. Pega en ChatGPT (⌘V)
+2. Espera la respuesta
+3. Selecciona solo la **respuesta** (no el prompt) y cópiala (⌘C)
+4. Vuelve a la terminal y pulsa **ENTER**
+
+**Lo que pasa después:**
+- Parsea `===CARTERA===` del texto → MANTENER / REBALANCEAR / VENDER
+- Actualiza `data/portfolio_state.json` automáticamente
+- Guarda todo en `data/daily_cache.json`
+
+### 2. Bot Telegram (déjalo siempre corriendo)
+
+```bash
+python strategy/telegram_bot_server.py
+```
+
+| Comando | Qué muestra |
+|---------|-------------|
+| `/signal` | 📊 Gráfica de rentabilidad temporal de la cartera |
+| `/report` | 🧠 Diagnóstico completo de ChatGPT (análisis + decisión) |
+| `/help` | Lista de comandos |
+
+### 📁 Archivos clave
+
+| Archivo | Función |
+|---------|---------|
+| `data/portfolio_state.json` | Tu cartera actual (holdings, pesos, P&L) |
+| `data/portfolio_history.json` | Historial diario para la gráfica |
+| `data/daily_cache.json` | Caché del día (datos + diagnóstico IA) |
+
+---
 
 ## Variables de Entorno (LLM + Telegram)
 
