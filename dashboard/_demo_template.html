@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GlobalMarketAnalyzer — Demo Simulation</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph@1.73.5/dist/3d-force-graph.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e6edf3;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
+
+/* ── Header ── */
+header{padding:18px 32px 14px;border-bottom:1px solid #21262d}
+.header-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+header h1{font-size:1.3rem;font-weight:700;letter-spacing:-.01em}
+.badge{background:#1f6feb;color:#fff;padding:3px 10px;border-radius:12px;font-size:.71rem;font-weight:600}
+.eq-line{font-size:.76rem;color:#8b949e;font-family:'Courier New',monospace;background:#161b22;border:1px solid #21262d;border-radius:6px;padding:6px 12px;display:inline-block}
+.eq-line strong{color:#58a6ff}
+.eq-tagline{font-size:.76rem;color:#8b949e;margin-top:4px;padding-left:2px}
+
+/* ── Stats bar ── */
+.stats{display:flex;gap:10px;padding:14px 32px;flex-wrap:wrap}
+.stat{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:10px 16px;min-width:112px}
+.stat .label{font-size:.65rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}
+.stat .value{font-size:1.35rem;font-weight:700;margin-top:2px}
+
+/* ── Color utils ── */
+.green{color:#3fb950}.red{color:#f85149}.yellow{color:#d29922}.blue{color:#58a6ff}.purple{color:#c084fc}.muted{color:#8b949e}
+
+/* ── Tabs ── */
+.tabs{display:flex;padding:0 32px;border-bottom:1px solid #21262d;margin-top:4px;overflow-x:auto;gap:2px}
+.tab{padding:10px 16px;cursor:pointer;font-size:.82rem;color:#8b949e;border-bottom:2px solid transparent;white-space:nowrap;user-select:none;transition:color .15s}
+.tab:hover{color:#c9d1d9}
+.tab.active{color:#e6edf3;border-bottom-color:#1f6feb}
+.panel{display:none;padding:20px 32px 32px}
+.panel.active{display:block}
+
+/* ── Cards ── */
+.chart-box{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:14px 16px;margin-bottom:14px}
+.chart-box h3{font-size:.75rem;color:#8b949e;margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:8px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+@media(max-width:900px){.row2,.row3{grid-template-columns:1fr}}
+
+/* ── Pills ── */
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600}
+.pill.BUY{background:#0d4429;color:#3fb950}.pill.SELL{background:#3d0f0f;color:#f85149}
+.pill.win{background:#0d4429;color:#3fb950}.pill.loss{background:#3d0f0f;color:#f85149}
+.pill.pending{background:#1c2432;color:#8b949e}
+.pill.calm{background:#0d2a1f;color:#34d399}.pill.normal{background:#1a2a0d;color:#86efac}
+.pill.stress{background:#2a1a0d;color:#fb923c}.pill.panic{background:#2a0d0d;color:#f87171}
+
+/* ── Select ── */
+select{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:4px 10px;font-size:.82rem;cursor:pointer;outline:none}
+
+/* ── Graph panel ── */
+#network-canvas{width:100%;height:620px;background:#0d1117;border-radius:6px}
+.zone-label{position:absolute;font-size:.65rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.22;pointer-events:none;font-family:'Courier New',monospace}
+#graph-controls{display:flex;align-items:center;gap:10px;padding:8px 0 6px;flex-wrap:wrap}
+#graph-controls button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:5px 14px;font-size:.8rem;cursor:pointer;transition:background .15s}
+#graph-controls button.playing{background:#1f6feb;border-color:#1f6feb}
+#timeline-slider{flex:1;min-width:160px;accent-color:#1f6feb}
+#graph-date{font-size:.83rem;color:#58a6ff;font-weight:600;min-width:88px}
+#graph-info{font-size:.74rem;color:#8b949e}
+.legend-box{display:flex;gap:14px;flex-wrap:wrap;padding:2px 0 8px}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:.71rem;color:#8b949e}
+.legend-swatch{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+.legend-line{width:18px;height:3px;border-radius:2px;flex-shrink:0}
+
+/* ── Live params overlay ── */
+.live-params{display:flex;gap:10px;flex-wrap:wrap;padding:4px 0 10px;align-items:center}
+.lp-card{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:6px 12px;text-align:center;min-width:80px}
+.lp-label{font-size:.6rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}
+.lp-value{font-size:1.15rem;font-weight:700;margin-top:1px}
+
+/* ── Signal table ── */
+.signals-table{width:100%;border-collapse:collapse;font-size:.77rem}
+.signals-table th{text-align:left;padding:6px 10px;color:#8b949e;font-weight:500;border-bottom:1px solid #21262d;white-space:nowrap}
+.signals-table td{padding:6px 10px;border-bottom:1px solid #0d1117;vertical-align:middle;white-space:nowrap}
+.signals-table tr:hover td{background:#1c2130}
+
+/* ── Explanation text ── */
+.explain{font-size:.77rem;color:#8b949e;line-height:1.55;padding:8px 4px 4px;border-top:1px solid #21262d;margin-top:6px}
+.explain strong{color:#c9d1d9}
+
+/* ── Model explanation box ── */
+.model-box{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:16px 20px;margin-top:10px;font-size:.78rem;line-height:1.6;color:#8b949e}
+.model-box h4{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#58a6ff;margin-bottom:8px;margin-top:14px}
+.model-box h4:first-child{margin-top:0}
+.model-box code{background:#161b22;border:1px solid #30363d;border-radius:4px;padding:2px 6px;font-family:'Courier New',monospace;color:#e6edf3;font-size:.76rem}
+.model-box strong{color:#c9d1d9}
+.model-box .eq-block{background:#161b22;border:1px solid #21262d;border-radius:6px;padding:10px 14px;margin:8px 0;font-family:'Courier New',monospace;font-size:.8rem;color:#e6edf3;text-align:center;letter-spacing:.02em}
+.model-box .eq-block .hl{color:#58a6ff}
+.param-table{width:100%;border-collapse:collapse;margin:8px 0}
+.param-table th{text-align:left;padding:5px 10px;color:#8b949e;font-size:.69rem;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #21262d}
+.param-table td{padding:5px 10px;border-bottom:1px solid #161b22;vertical-align:top;font-size:.77rem}
+.param-table td:first-child{color:#58a6ff;font-family:'Courier New',monospace;white-space:nowrap;font-size:.8rem}
+.param-table td:nth-child(2){color:#c9d1d9;font-weight:600;white-space:nowrap}
+.regime-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0}
+.regime-card{background:#161b22;border:1px solid #21262d;border-radius:6px;padding:8px 10px;font-size:.72rem}
+.regime-card .rname{font-weight:700;margin-bottom:4px}
+.regime-card .rrow{display:flex;justify-content:space-between;color:#8b949e;margin-top:2px}
+.regime-card .rrow span{color:#c9d1d9}
+@media(max-width:700px){.regime-grid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header>
+  <div class="header-top">
+    <h1>GlobalMarketAnalyzer</h1>
+    <span class="badge">DEMO — Bayesian O-U Simulation</span>
+  </div>
+  <div class="eq-line">
+    <strong>γ(t)·m'' + m'</strong> = −<strong>α(t)</strong>·L<sub>z</sub><sup>s(t)</sup>·m + f<sub>i</sub><sup>Bayes</sup>(t) + Ω<sub>i</sub>(t) + v(t)
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+    f<sub>i</sub><sup>Bayes</sup> = f<sub>i</sub><sup>fund</sup> + κ·δ<sub>i</sub>(t)·S<sub>fear</sub>(t)
+  </div>
+  <div class="eq-tagline">Capital field on a graph. Each node is an asset; color encodes how far model prediction deviates from reality. The Bayesian term κ·δᵢ·S_fear corrects the source in real time.</div>
+</header>
+
+<!-- ═══════════════════ STATS BAR ═══════════════════ -->
+<div class="stats">
+  <div class="stat"><div class="label">Signals</div><div class="value blue">__N_SIGNALS__</div></div>
+  <div class="stat"><div class="label">Win Rate 5d</div><div class="value __WR_CLASS__">__WIN_RATE__%</div></div>
+  <div class="stat"><div class="label">Avg Confidence</div><div class="value yellow">__AVG_CONF__%</div></div>
+  <div class="stat"><div class="label">Tickers</div><div class="value blue">__N_TICKERS__</div></div>
+  <div class="stat"><div class="label">Z Entry</div><div class="value purple">__Z_ENTRY__</div></div>
+  <div class="stat"><div class="label">Period</div><div class="value muted" style="font-size:.85rem;margin-top:5px">Last 90 days</div></div>
+</div>
+
+<!-- ═══════════════════ TABS ═══════════════════ -->
+<div class="tabs">
+  <div class="tab active"    onclick="switchTab('graph',this)">Graph Network</div>
+  <div class="tab"           onclick="switchTab('bayes',this)">Regime-Adaptive State</div>
+  <div class="tab"           onclick="switchTab('price',this)">Price + Signals</div>
+  <div class="tab"           onclick="switchTab('portfolio',this)">Portfolio vs SPY</div>
+  <div class="tab"           onclick="switchTab('calibration',this)">Calibration</div>
+  <div class="tab"           onclick="switchTab('table',this)">Signal Log</div>
+</div>
+
+<!-- ═══════════════════ TAB: GRAPH ═══════════════════ -->
+<div class="panel active" id="panel-graph">
+  <div class="chart-box">
+    <h3>Capital Flow Network — δ_ou = Model vs Reality (Bayesian-adaptive)</h3>
+
+    <div class="legend-box">
+      <div class="legend-item"><div class="legend-swatch" style="background:#60a5fa"></div>δ &lt; 0: model below reality → BUY pressure</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#f87171"></div>δ &gt; 0: model above reality → SELL pressure</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#4b5563"></div>Neutral (δ ≈ 0)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:transparent;border:2px solid #60a5fa;transform:rotate(45deg)"></div>Bank ◆</div>
+      <div class="legend-item"><div class="legend-line" style="background:#34d399"></div>Intra-zone corr+</div>
+      <div class="legend-item"><div class="legend-line" style="background:#fbbf24"></div>Cross-zone (dashed)</div>
+    </div>
+
+    <!-- Live Bayesian overlay -->
+    <div class="live-params" id="live-params">
+      <div class="lp-card"><div class="lp-label">Regime</div><div class="lp-value" id="lp-regime">—</div></div>
+      <div class="lp-card"><div class="lp-label">VIX</div><div class="lp-value yellow" id="lp-vix">—</div></div>
+      <div class="lp-card"><div class="lp-label">α diffusion</div><div class="lp-value blue" id="lp-alpha">—</div></div>
+      <div class="lp-card"><div class="lp-label">γ inertia</div><div class="lp-value purple" id="lp-gamma">—</div></div>
+      <div class="lp-card"><div class="lp-label">s fractal</div><div class="lp-value yellow" id="lp-s">—</div></div>
+      <div class="lp-card"><div class="lp-label">S_fear</div><div class="lp-value" id="lp-sfear">—</div></div>
+    </div>
+
+    <div id="graph-controls">
+      <button id="play-btn" onclick="togglePlay()">&#9654; Play</button>
+      <input type="range" id="timeline-slider" min="0" value="0" step="1">
+      <span id="graph-date">—</span>
+      <span id="graph-info"></span>
+    </div>
+
+    <div id="network-canvas"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════ TAB: BAYESIAN STATE ═══════════════════ -->
+<div class="panel" id="panel-bayes">
+
+  <!-- MODEL EXPLANATION -->
+  <div class="chart-box">
+    <h3>The Model — Motivation, Parameters &amp; Validity</h3>
+    <div class="model-box">
+
+      <h4>Why this equation?</h4>
+      Capital in financial markets behaves like a physical field: it diffuses across assets, has inertia (trends), and is pulled toward fundamental equilibrium. Classical Ornstein-Uhlenbeck (O-U) models capture mean reversion but ignore (1) network structure, (2) varying diffusion reach across regimes, and (3) real-time feedback from prediction error. This model extends O-U to a <strong>graph field equation</strong> where each asset is a node with a capital density m<sub>i</sub>(t):
+
+      <div class="eq-block">
+        <span class="hl">γ(t)</span>·m''<sub>i</sub> + m'<sub>i</sub> = −<span class="hl">α(t)</span>·L<sub>z</sub><sup><span class="hl">s(t)</span></sup>·m<sub>i</sub> + f<sub>i</sub><sup>Bayes</sup>(t) + Ω<sub>i</sub>(t) + v(t)
+      </div>
+      <div class="eq-block" style="margin-top:4px">
+        f<sub>i</sub><sup>Bayes</sup>(t) = f<sub>i</sub><sup>fund</sup>(t) + κ · δ<sub>i</sub>(t) · <span class="hl">S<sub>fear</sub>(t)</span>
+        &nbsp;&nbsp;where&nbsp;&nbsp; δ<sub>i</sub>(t) = m<sup>pred</sup><sub>i</sub> − m<sup>real</sup><sub>i</sub>
+      </div>
+
+      <h4>What each term means</h4>
+      <table class="param-table">
+        <tr><th>Symbol</th><th>Name</th><th>Meaning</th></tr>
+        <tr><td>m<sub>i</sub>(t)</td><td>Capital field</td><td>Normalized capital density at node i — proxy for log-price deviation from zone equilibrium</td></tr>
+        <tr><td>m'<sub>i</sub></td><td>Velocity</td><td>Rate of change of capital — equivalent to daily return momentum</td></tr>
+        <tr><td>m''<sub>i</sub></td><td>Acceleration</td><td>Second derivative — captures convexity; when γ is large, past trend resists reversal</td></tr>
+        <tr><td>γ(t)</td><td>Inertia coefficient</td><td>How strongly past momentum persists. High γ (calm market) = trends last. Low γ (panic) = momentum collapses instantly</td></tr>
+        <tr><td>α(t)</td><td>Diffusion rate</td><td>Speed at which capital seeks equilibrium. Scales with VIX: faster correction in stress, slower drift in calm</td></tr>
+        <tr><td>L<sub>z</sub><sup>s(t)</sup></td><td>Fractional Laplacian</td><td>Graph diffusion operator raised to fractional power s. s≈0.9 → local diffusion (stays in zone). s≈0.2 → global contagion (panic crosses all zones simultaneously)</td></tr>
+        <tr><td>f<sub>i</sub><sup>fund</sup>(t)</td><td>Fundamental source</td><td>External forcing: for banks = yield spread × lending capacity; for productive nodes = (dK/dt + credit_in − interest_out) × sentiment</td></tr>
+        <tr><td>δ<sub>i</sub>(t)</td><td>Model-reality gap</td><td>Prediction error per node. δ>0 = model overestimates reality (sell signal). δ<0 = model underestimates (buy signal)</td></tr>
+        <tr><td>κ = 0.05</td><td>Correction gain</td><td>How aggressively the source term self-corrects. Small κ = conservative Bayesian update. Tuned to avoid feedback instability</td></tr>
+        <tr><td>S<sub>fear</sub>(t)</td><td>Fear scaling</td><td>(20/VIX)^0.3 — dampens corrections in panic (VIX high = low S_fear = model is less confident in its own update)</td></tr>
+        <tr><td>Ω<sub>i</sub>(t)</td><td>Dimensional corrections</td><td>Sovereign debt drag (−η·D/GDP·m<sub>i</sub>) + rate sensitivity (−β_r·dr_FED·m<sub>i</sub>) + FX cross-zone coupling</td></tr>
+        <tr><td>v(t)</td><td>Macro velocity</td><td>Exogenous shock term — aggregate money flow signal (PMI, credit impulse) injected as white-noise forcing</td></tr>
+      </table>
+
+      <h4>Adaptive regime table</h4>
+      <div class="regime-grid">
+        <div class="regime-card"><div class="rname green">Calm <span style="color:#8b949e;font-weight:400">(VIX&lt;15)</span></div>
+          <div class="rrow">α <span>0.020</span></div><div class="rrow">γ <span>10</span></div>
+          <div class="rrow">s <span>0.90</span></div><div class="rrow">S<sub>fear</sub> <span>1.10</span></div>
+          <div class="rrow" style="margin-top:4px;color:#8b949e;font-size:.68rem">Local diffusion, strong trends</div>
+        </div>
+        <div class="regime-card"><div class="rname" style="color:#86efac">Normal <span style="color:#8b949e;font-weight:400">(15–20)</span></div>
+          <div class="rrow">α <span>0.030</span></div><div class="rrow">γ <span>5</span></div>
+          <div class="rrow">s <span>0.70</span></div><div class="rrow">S<sub>fear</sub> <span>1.00</span></div>
+          <div class="rrow" style="margin-top:4px;color:#8b949e;font-size:.68rem">Balanced mean-reversion</div>
+        </div>
+        <div class="regime-card"><div class="rname" style="color:#fb923c">Stress <span style="color:#8b949e;font-weight:400">(20–28)</span></div>
+          <div class="rrow">α <span>0.045</span></div><div class="rrow">γ <span>2</span></div>
+          <div class="rrow">s <span>0.45</span></div><div class="rrow">S<sub>fear</sub> <span>0.85</span></div>
+          <div class="rrow" style="margin-top:4px;color:#8b949e;font-size:.68rem">Cross-zone contagion begins</div>
+        </div>
+        <div class="regime-card"><div class="rname red">Panic <span style="color:#8b949e;font-weight:400">(VIX&gt;28)</span></div>
+          <div class="rrow">α <span>0.060</span></div><div class="rrow">γ <span>1</span></div>
+          <div class="rrow">s <span>0.20</span></div><div class="rrow">S<sub>fear</sub> <span>0.65</span></div>
+          <div class="rrow" style="margin-top:4px;color:#8b949e;font-size:.68rem">Global contagion, signals dampened</div>
+        </div>
+      </div>
+
+      <h4>Validity analysis</h4>
+      The equation is physically motivated but simplified. Key assumptions and their limits:
+      <ul style="margin:6px 0 0 16px;line-height:1.7">
+        <li><strong>Linear mean-reversion</strong>: the −α·L^s·m term assumes capital returns to equilibrium proportionally to displacement. This holds in normal regimes but breaks down in structural breaks (e.g., sector rotation, regulatory changes). The Bayesian δ-feedback partially compensates by re-anchoring the source term.</li>
+        <li><strong>Static graph topology</strong>: edges (correlations) are recalculated daily but the zone structure (USD / EUR / ASIA / EM) is fixed. Cross-zone capital flows via bank nodes only — a reasonable approximation given Basel III constraints, but underestimates shadow-banking channels.</li>
+        <li><strong>Fractional Laplacian L^s</strong>: the exponent s controls diffusion reach. s=1 recovers standard graph diffusion. s→0 makes every node directly connected to every other (fully non-local). The heuristic mapping VIX→s is calibrated empirically; a more principled approach would infer s from realized correlation matrices.</li>
+        <li><strong>Bayesian κ=0.05</strong>: conservative by design. A higher κ closes the feedback loop faster but risks instability when δ is noisy (e.g., data latency). The S_fear dampening ensures κ·S_fear → ~0.03 in panic, preventing overcorrection precisely when data quality degrades.</li>
+      </ul>
+
+      <h4>How to interpret the results</h4>
+      A <strong>__WIN_RATE__% win rate</strong> on 5-day forward returns is measured <em>in-sample</em> on the same 90-day window used to generate signals — this is an exploration metric, not a validated backtest. Signals are filtered by p_reversion &gt; 0.55, composite score threshold, and reversibility check (P7). The model is not a price predictor — it is a <strong>regime-aware mean-reversion detector</strong>. Its edge comes from correctly identifying <em>when</em> O-U dynamics dominate (calm/normal regimes, VIX 15–22). <strong>Disclaimer:</strong> α, γ, s, S_fear in this demo are derived from a VIX→regime lookup table, not from running the actual EKF/UKF filters. The chart below shows the lookup values, not Kalman posterior estimates.
+    </div>
+  </div>
+
+  <div class="chart-box">
+    <h3>Regime Parameter Evolution — α, γ, s, S_fear + VIX (second axis)</h3>
+    <div id="chart-bayes-params" style="height:400px"></div>
+    <div class="explain">
+      <strong>How to read this chart:</strong> When VIX spikes, <strong>α increases</strong> (faster diffusion — capital flows spread across more assets simultaneously), <strong>γ collapses</strong> (momentum vanishes — no trend-following in panic), <strong>s drops</strong> (global contagion — the fractional Laplacian reaches across zones instead of staying local), and <strong>S_fear dampens signals</strong> — the model simultaneously becomes more cautious and faster-reacting. In calm regimes (VIX &lt; 15), high γ and s near 0.9 mean slow diffusion and persistent trends.
+    </div>
+  </div>
+  <div class="row2">
+    <div class="chart-box">
+      <h3>Win Rate by Regime</h3>
+      <div id="chart-regime-wr" style="height:300px"></div>
+    </div>
+    <div class="chart-box">
+      <h3>Signals by Regime</h3>
+      <div id="chart-regime-signals" style="height:300px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ TAB: PRICE + SIGNALS ═══════════════════ -->
+<div class="panel" id="panel-price">
+  <div class="chart-box">
+    <h3>Price Chart — <select id="ticker-select" onchange="drawPrice()"></select></h3>
+    <div id="chart-price" style="height:440px"></div>
+    <div class="explain">
+      <strong>Markers:</strong> Triangle-up (green) = BUY signal | Triangle-down (red) = SELL signal. Vertical dashed lines mark key market events. Hover a marker for δ_ou, α, s, regime, and confidence.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ TAB: PORTFOLIO ═══════════════════ -->
+<div class="panel" id="panel-portfolio">
+  <div class="chart-box">
+    <h3>Strategy Equity Curve vs SPY (base 100) — with regime shading &amp; key events</h3>
+    <div id="chart-portfolio" style="height:460px"></div>
+    <div class="explain">
+      Background shading: <strong style="color:#3fb950">green tint</strong> = calm regime | <strong style="color:#fb923c">orange tint</strong> = stress | <strong style="color:#f87171">red tint</strong> = panic. Vertical lines mark key market events from the 90-day window.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ TAB: CALIBRATION ═══════════════════ -->
+<div class="panel" id="panel-calibration">
+  <div class="row2">
+    <div class="chart-box">
+      <h3>Expected vs Realized Return (5d)</h3>
+      <div id="chart-scatter" style="height:360px"></div>
+      <div class="explain">A well-calibrated model has points on the diagonal. <strong>Above</strong> = model underestimated the return. <strong>Below</strong> = model overestimated. Tight clustering around the diagonal = good calibration.</div>
+    </div>
+    <div class="chart-box">
+      <h3>Win Rate by Confidence Bucket</h3>
+      <div id="chart-winrate" style="height:360px"></div>
+      <div class="explain">Higher confidence buckets should have higher win rates. A monotonically increasing chart confirms the Bayesian confidence is well-calibrated to actual outcomes.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ TAB: SIGNAL LOG ═══════════════════ -->
+<div class="panel" id="panel-table">
+  <div class="chart-box">
+    <h3>All Signals</h3>
+    <div style="overflow-x:auto">
+      <table class="signals-table">
+        <thead><tr>
+          <th>Date</th><th>Ticker</th><th>Signal</th><th>Regime</th>
+          <th>α</th><th>s</th><th>δ_ou</th>
+          <th>Confidence</th><th>Exp.Ret 5d</th><th>Realized 5d</th>
+          <th>vs SPY</th><th>Outcome</th>
+        </tr></thead>
+        <tbody id="signals-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ JAVASCRIPT ═══════════════════ -->
+<script>
+// ── Data injected by backend ─────────────────────────────────────────────────
+const SIGNALS        = __SIGNALS__;
+const PRICES         = __PRICES__;
+const SPY_NORM       = __SPY_NORM__;
+const PORT           = __PORT__;
+const DATES_PORT     = __DATES_PORT__;
+const CAL            = __CAL__;
+const TICKERS        = __TICKERS__;
+const GRAPH_SNAPSHOTS = __GRAPH__;
+const BAYES          = __BAYES__;
+const Z_ENTRY        = __Z_ENTRY__;
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const REGIME_COLOR = {calm:'#34d399', normal:'#86efac', stress:'#fb923c', panic:'#f87171'};
+const REGIME_BG    = {calm:'rgba(52,211,153,0.06)', normal:'rgba(134,239,172,0.04)',
+                      stress:'rgba(251,146,60,0.10)', panic:'rgba(248,113,113,0.14)'};
+
+const KEY_EVENTS = [
+  {date:'2026-03-06', label:'Tariff fears',          color:'#fb923c'},
+  {date:'2026-03-27', label:'VIX Peak 31 — Stress',  color:'#f87171'},
+  {date:'2026-04-07', label:'Last stress spike',      color:'#fb923c'},
+  {date:'2026-04-14', label:'Recovery begins',        color:'#3fb950'},
+];
+
+const PL_BASE = {
+  paper_bgcolor:'#161b22', plot_bgcolor:'#161b22',
+  font:{color:'#8b949e', size:11},
+  xaxis:{gridcolor:'#21262d', linecolor:'#30363d', zerolinecolor:'#21262d'},
+  yaxis:{gridcolor:'#21262d', linecolor:'#30363d', zerolinecolor:'#21262d'},
+  margin:{t:28,r:24,b:44,l:58},
+  legend:{bgcolor:'rgba(0,0,0,0)', font:{size:10}},
+};
+
+function pl(extra){return Object.assign({}, PL_BASE, extra);}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'bayes')       drawBayesianState();
+  if (name === 'price')       drawPrice();
+  if (name === 'portfolio')   drawPortfolio();
+  if (name === 'calibration') drawCalibration();
+  if (name === 'table')       buildTable();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GRAPH NETWORK
+// ═══════════════════════════════════════════════════════════════════════════════
+let network3d = null, playTimer = null, currentSnap = 0;
+
+// Blue = model below reality (δ<0 = BUY). Red = model above reality (δ>0 = SELL).
+function deltaToColor(d) {
+  const t = Math.max(-1, Math.min(1, d / 0.3));
+  if (t < 0) {
+    const i = Math.abs(t);
+    const r = Math.round(59  + i * 10);
+    const g = Math.round(130 + i * 80);
+    const a = (0.4 + i * 0.6).toFixed(2);
+    return `rgba(${r},${g},246,${a})`;
+  }
+  const i = t;
+  const gb = Math.round(68 * (1 - i * 0.8));
+  const a  = (0.4 + i * 0.6).toFixed(2);
+  return `rgba(239,${gb},${gb},${a})`;
+}
+
+// ── 3D GRAPH ──
+const ZONE_XZ = {
+  USD:   { x:  220, z:  180 },
+  EUR:   { x: -220, z:  180 },
+  ASIA:  { x: -220, z: -180 },
+  EM:    { x:  220, z: -180 },
+  MACRO: { x:    0, z:    0 },
+  FX:    { x:    0, z:    0 },
+};
+const ROLE_Y = { macro: 120, fx: 80, bank: 30, productive: -20, index: -70 };
+
+let _nodePos3d = {};
+
+function getPos3d(n, allNodes) {
+  if (_nodePos3d[n.id]) return _nodePos3d[n.id];
+  const zone = (n.role === 'macro' || n.role === 'fx') ? n.role.toUpperCase() : n.zone;
+  const zc = ZONE_XZ[zone] || { x: 0, z: 0 };
+  const y  = ROLE_Y[n.role] !== undefined ? ROLE_Y[n.role] : 0;
+  const peers = allNodes.filter(x => x.zone === n.zone && x.role === n.role);
+  const idx   = peers.findIndex(x => x.id === n.id);
+  const total = Math.max(1, peers.length);
+  const spread = Math.max(30, total * 22);
+  const angle  = (idx / total) * Math.PI * 2;
+  const pos = {
+    x: zc.x + Math.cos(angle) * spread * 0.6,
+    y: y + (Math.random() - 0.5) * 10,
+    z: zc.z + Math.sin(angle) * spread * 0.6,
+  };
+  _nodePos3d[n.id] = pos;
+  return pos;
+}
+
+function edgeColorFromEdge(e) {
+  if (e.cross_zone) return '#fbbf24';
+  return e.weight > 0 ? '#34d399' : '#f87171';
+}
+
+function nodeColor3d(n) {
+  const d = (typeof n.delta === 'number' && !isNaN(n.delta)) ? n.delta : 0;
+  return deltaToColor(d);
+}
+
+function nodeSize3d(n) {
+  const d = Math.abs((typeof n.delta === 'number' && !isNaN(n.delta)) ? n.delta : 0);
+  const base = { bank: 14, macro: 18, fx: 16, index: 12 }[n.role] || 10;
+  return base + d * 15;
+}
+
+function buildGraphData(snap) {
+  // Pre-compute positions for all nodes in this snap (seed cache once per ticker)
+  snap.nodes.forEach(n => getPos3d(n, snap.nodes));
+
+  const nodes = snap.nodes.map(n => {
+    const pos = _nodePos3d[n.id];
+    const d = (typeof n.delta === 'number' && !isNaN(n.delta)) ? n.delta : 0;
+    return {
+      id: n.id,
+      label: n.id,
+      role: n.role,
+      zone: n.zone,
+      delta: d,
+      price: n.price,
+      country: n.country,
+      color: nodeColor3d(n),
+      val: nodeSize3d(n),
+      fx: pos.x, fy: pos.y, fz: pos.z,  // fixed positions — no physics drift
+    };
+  });
+
+  const links = snap.edges.map(e => ({
+    source: e.from,
+    target: e.to,
+    color: edgeColorFromEdge(e),
+    weight: e.weight,
+    cross_zone: e.cross_zone,
+    opacity: Math.min(0.9, 0.25 + Math.abs(e.weight) * 0.65),
+  }));
+
+  return { nodes, links };
+}
+
+function initNetwork() {
+  if (!GRAPH_SNAPSHOTS || GRAPH_SNAPSHOTS.length === 0) return;
+  const snap = GRAPH_SNAPSHOTS[0];
+  const data = buildGraphData(snap);
+
+  const el = document.getElementById('network-canvas');
+
+  network3d = ForceGraph3D()(el)
+    .backgroundColor('#0d1117')
+    .width(el.clientWidth || 900)
+    .height(620)
+    .graphData(data)
+    .nodeId('id')
+    .nodeLabel(n => {
+      const direction = n.delta < -Z_ENTRY*0.15 ? 'BUY pressure' : n.delta > Z_ENTRY*0.15 ? 'SELL pressure' : 'Neutral';
+      return `<div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:6px 10px;font-size:12px;color:#e6edf3">
+        <b>${n.id}</b> [${n.role}]<br>Zone: ${n.zone} | ${n.country||''}<br>δ_ou: ${n.delta.toFixed(4)} → <b>${direction}</b><br>Price: $${n.price}
+      </div>`;
+    })
+    .nodeColor('color')
+    .nodeVal('val')
+    .nodeResolution(12)
+    .linkColor(l => l.color)
+    .linkOpacity(0.5)
+    .linkWidth(l => l.cross_zone ? 1.5 + Math.abs(l.weight)*2 : 0.8 + Math.abs(l.weight)*1.5)
+    .linkDirectionalParticles(l => l.cross_zone ? 2 : 0)
+    .linkDirectionalParticleSpeed(0.004)
+    .linkDirectionalParticleColor(l => l.color)
+    .d3AlphaDecay(1)   // stop physics immediately — use fixed positions
+    .d3VelocityDecay(1);
+
+  document.getElementById('timeline-slider').max = GRAPH_SNAPSHOTS.length - 1;
+  updateGraphLabel(0);
+}
+
+function updateGraph(idx) {
+  if (!network3d) return;
+  const snap = GRAPH_SNAPSHOTS[idx];
+  const data = buildGraphData(snap);
+
+  // Update node colors/sizes only — positions are fixed
+  const gd = network3d.graphData();
+  gd.nodes.forEach(existing => {
+    const fresh = data.nodes.find(n => n.id === existing.id);
+    if (fresh) {
+      existing.color = fresh.color;
+      existing.val   = fresh.val;
+      existing.delta = fresh.delta;
+    }
+  });
+  // Replace links
+  network3d.graphData({ nodes: gd.nodes, links: data.links });
+  updateGraphLabel(idx);
+}
+
+function updateGraphLabel(idx) {
+  const snap = GRAPH_SNAPSHOTS[idx];
+  document.getElementById('graph-date').textContent = snap.date;
+
+  const buys  = snap.nodes.filter(n => { const d=(typeof n.delta==='number'&&!isNaN(n.delta))?n.delta:0; return d < -Z_ENTRY*0.15; }).length;
+  const sells = snap.nodes.filter(n => { const d=(typeof n.delta==='number'&&!isNaN(n.delta))?n.delta:0; return d >  Z_ENTRY*0.15; }).length;
+  const cross = snap.edges.filter(e => e.cross_zone).length;
+  document.getElementById('graph-info').textContent =
+    `BUY pressure: ${buys}  ·  SELL pressure: ${sells}  ·  cross-zone edges: ${cross}`;
+
+  currentSnap = idx;
+  document.getElementById('timeline-slider').value = idx;
+
+  // Params overlay
+  document.getElementById('lp-regime').innerHTML =
+    `<span class="pill ${snap.regime}">${(snap.regime||'').toUpperCase()}</span>`;
+  document.getElementById('lp-vix').textContent   = snap.vix;
+  document.getElementById('lp-alpha').textContent = snap.alpha;
+  document.getElementById('lp-gamma').textContent = snap.gamma;
+  document.getElementById('lp-s').textContent     = snap.s;
+  const sf = snap.S_fear;
+  const sfClass = sf >= 1 ? 'green' : sf >= 0.85 ? 'yellow' : 'red';
+  document.getElementById('lp-sfear').innerHTML =
+    `<span class="${sfClass}">${sf}</span>`;
+}
+
+document.getElementById('timeline-slider').addEventListener('input', function() {
+  updateGraph(+this.value);
+});
+
+function togglePlay() {
+  const btn = document.getElementById('play-btn');
+  if (playTimer) {
+    clearInterval(playTimer); playTimer = null;
+    btn.textContent = '▶ Play'; btn.classList.remove('playing');
+  } else {
+    btn.textContent = '⏸ Pause'; btn.classList.add('playing');
+    playTimer = setInterval(() => {
+      const next = (currentSnap + 1) % GRAPH_SNAPSHOTS.length;
+      updateGraph(next);
+      if (next === GRAPH_SNAPSHOTS.length - 1) {
+        clearInterval(playTimer); playTimer = null;
+        btn.textContent = '▶ Play'; btn.classList.remove('playing');
+      }
+    }, 700);
+  }
+}
+
+window.addEventListener('load', () => initNetwork());
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BAYESIAN STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildRegimeShapes(data, dateKey) {
+  const shapes = [];
+  let start = null, curRegime = null;
+  data.forEach((b, i) => {
+    if (b.regime !== curRegime) {
+      if (curRegime !== null) {
+        shapes.push({
+          type:'rect', xref:'x', yref:'paper',
+          x0: start, x1: b[dateKey] || b.date,
+          y0:0, y1:1,
+          fillcolor: REGIME_BG[curRegime] || 'rgba(0,0,0,0)',
+          line:{width:0}, layer:'below',
+        });
+      }
+      curRegime = b.regime;
+      start = b[dateKey] || b.date;
+    }
+    if (i === data.length - 1 && curRegime) {
+      shapes.push({
+        type:'rect', xref:'x', yref:'paper',
+        x0: start, x1: b[dateKey] || b.date,
+        y0:0, y1:1,
+        fillcolor: REGIME_BG[curRegime] || 'rgba(0,0,0,0)',
+        line:{width:0}, layer:'below',
+      });
+    }
+  });
+  return shapes;
+}
+
+function keyEventAnnotations() {
+  return KEY_EVENTS.flatMap(ev => [
+    {
+      type:'line', xref:'x', yref:'paper',
+      x0:ev.date, x1:ev.date, y0:0, y1:1,
+      line:{color:ev.color, width:1.5, dash:'dot'},
+    },
+  ]);
+}
+
+function keyEventAnnotationLabels() {
+  return KEY_EVENTS.map(ev => ({
+    x: ev.date, y: 1, xref:'x', yref:'paper',
+    text: ev.label, showarrow:false,
+    font:{size:9, color:ev.color},
+    xanchor:'left', yanchor:'top', textangle:-90,
+    bgcolor:'rgba(13,17,23,0.7)',
+  }));
+}
+
+function drawBayesianState() {
+  const dates = BAYES.map(b => b.date);
+  const regShapes = buildRegimeShapes(BAYES, 'date');
+  const evShapes  = keyEventAnnotations();
+
+  Plotly.react('chart-bayes-params', [
+    {x:dates, y:BAYES.map(b=>b.alpha),  name:'α (diffusion)',   type:'scatter', mode:'lines',
+     line:{color:'#58a6ff', width:2}},
+    {x:dates, y:BAYES.map(b=>b.s),      name:'s (fractal)',     type:'scatter', mode:'lines',
+     line:{color:'#d29922', width:2}},
+    {x:dates, y:BAYES.map(b=>b.S_fear), name:'S_fear',          type:'scatter', mode:'lines',
+     line:{color:'#c084fc', width:2}},
+    {x:dates, y:BAYES.map(b=>b.gamma),  name:'γ (inertia/10)',  type:'scatter', mode:'lines',
+     line:{color:'#34d399', width:1.5, dash:'dot'},
+     // normalize γ to 0-1 range for visibility alongside small params
+     y:BAYES.map(b=>(b.gamma||0)/10), yaxis:'y'},
+    {x:dates, y:BAYES.map(b=>b.vix),    name:'VIX',             type:'scatter', mode:'lines',
+     line:{color:'#f87171', width:1.5, dash:'dot'}, yaxis:'y2'},
+  ], {
+    ...PL_BASE,
+    showlegend: true,
+    shapes:   [...regShapes, ...evShapes],
+    annotations: keyEventAnnotationLabels(),
+    yaxis: {
+      ...PL_BASE.yaxis, title:'α / s / S_fear / γ÷10',
+      range:[0, 1.3],
+    },
+    yaxis2:{
+      overlaying:'y', side:'right', title:'VIX',
+      gridcolor:'transparent', linecolor:'#30363d',
+      color:'#f87171', tickfont:{color:'#f87171'},
+    },
+    legend:{bgcolor:'rgba(0,0,0,0)', font:{size:10}, orientation:'h', y:-0.15},
+    margin:{t:28,r:60,b:60,l:58},
+  });
+
+  // ── Win rate by regime ────────────────────────────────────────────────────
+  const regimes = ['calm','normal','stress','panic'];
+  const wrByRegime = regimes.map(r => {
+    const sub  = SIGNALS.filter(s => s.regime===r && s.win!==null);
+    const wins = sub.filter(s => s.win===true).length;
+    return sub.length ? Math.round(wins / sub.length * 100) : 0;
+  });
+  Plotly.react('chart-regime-wr', [
+    {x: regimes, y: wrByRegime, type:'bar',
+     marker:{color: wrByRegime.map((v,i) => v>=50 ? REGIME_COLOR[regimes[i]] : '#4b5563')},
+     text: wrByRegime.map(v => v+'%'), textposition:'outside', textfont:{color:'#e6edf3'}},
+    {x: regimes, y:[50,50,50,50], type:'scatter', mode:'lines',
+     line:{color:'#8b949e', dash:'dot', width:1}, name:'50% baseline', showlegend:false},
+  ], pl({yaxis:{...PL_BASE.yaxis, title:'Win Rate (%)', range:[0,115]}, showlegend:false}));
+
+  // ── Signals by regime ─────────────────────────────────────────────────────
+  const sigCounts = regimes.map(r => SIGNALS.filter(s => s.regime===r).length);
+  const buyCounts  = regimes.map(r => SIGNALS.filter(s => s.regime===r && s.signal==='BUY').length);
+  const sellCounts = regimes.map(r => SIGNALS.filter(s => s.regime===r && s.signal==='SELL').length);
+  Plotly.react('chart-regime-signals', [
+    {x:regimes, y:buyCounts,  name:'BUY',  type:'bar', marker:{color:'#3fb950'},
+     text:buyCounts,  textposition:'inside', textfont:{color:'#e6edf3'}},
+    {x:regimes, y:sellCounts, name:'SELL', type:'bar', marker:{color:'#f85149'},
+     text:sellCounts, textposition:'inside', textfont:{color:'#e6edf3'}},
+  ], pl({barmode:'stack', showlegend:true, yaxis:{...PL_BASE.yaxis, title:'# Signals'}}));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PRICE + SIGNALS
+// ═══════════════════════════════════════════════════════════════════════════════
+const tickerSel = document.getElementById('ticker-select');
+TICKERS.forEach(t => {
+  const o = document.createElement('option');
+  o.value = t; o.text = t;
+  tickerSel.appendChild(o);
+});
+
+function drawPrice() {
+  const t  = tickerSel.value;
+  const pd = PRICES[t];
+  if (!pd) return;
+
+  const sigs  = SIGNALS.filter(s => s.ticker === t);
+  const buys  = sigs.filter(s => s.signal === 'BUY');
+  const sells = sigs.filter(s => s.signal === 'SELL');
+
+  function priceAt(date, fallback) {
+    const idx = pd.dates.indexOf(date);
+    return idx >= 0 ? pd.prices[idx] : fallback;
+  }
+
+  const evShapes = KEY_EVENTS.map(ev => ({
+    type:'line', xref:'x', yref:'paper',
+    x0:ev.date, x1:ev.date, y0:0, y1:1,
+    line:{color:ev.color, width:1, dash:'dash'},
+  }));
+  const evAnnotations = KEY_EVENTS.map(ev => ({
+    x:ev.date, y:1, xref:'x', yref:'paper',
+    text:ev.label, showarrow:false,
+    font:{size:8, color:ev.color}, xanchor:'left', yanchor:'top',
+    textangle:-90, bgcolor:'rgba(13,17,23,0.7)',
+  }));
+
+  Plotly.react('chart-price', [
+    {x: pd.dates, y: pd.prices, type:'scatter', mode:'lines', name: t,
+     line:{color:'#58a6ff', width:2}},
+    {x: buys.map(s=>s.date),
+     y: buys.map(s=>priceAt(s.date, s.price)),
+     type:'scatter', mode:'markers', name:'BUY',
+     marker:{color:'#3fb950', size:11, symbol:'triangle-up'},
+     text: buys.map(s =>
+       `<b>BUY ${s.ticker}</b><br>Price: $${s.price}<br>δ_ou: ${s.delta_ou!=null?s.delta_ou.toFixed(4):(s.z_score||'—')}<br>α: ${s.alpha||'—'}  s: ${s.s||'—'}<br>Regime: ${s.regime||'—'}  Conf: ${s.confidence}%`
+     ), hoverinfo:'text+x'},
+    {x: sells.map(s=>s.date),
+     y: sells.map(s=>priceAt(s.date, s.price)),
+     type:'scatter', mode:'markers', name:'SELL',
+     marker:{color:'#f85149', size:11, symbol:'triangle-down'},
+     text: sells.map(s =>
+       `<b>SELL ${s.ticker}</b><br>Price: $${s.price}<br>δ_ou: ${s.delta_ou!=null?s.delta_ou.toFixed(4):(s.z_score||'—')}<br>α: ${s.alpha||'—'}  s: ${s.s||'—'}<br>Regime: ${s.regime||'—'}  Conf: ${s.confidence}%`
+     ), hoverinfo:'text+x'},
+  ], pl({
+    showlegend: true,
+    shapes:     evShapes,
+    annotations:evAnnotations,
+    yaxis:{...PL_BASE.yaxis, title:'Price ($)'},
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PORTFOLIO vs SPY
+// ═══════════════════════════════════════════════════════════════════════════════
+function drawPortfolio() {
+  // Build regime shading from BAYES data mapped to DATES_PORT
+  const regimeShapes = [];
+  if (BAYES && BAYES.length > 0) {
+    let cur = null, start = null;
+    BAYES.forEach((b, i) => {
+      if (b.regime !== cur) {
+        if (cur !== null) {
+          regimeShapes.push({
+            type:'rect', xref:'x', yref:'paper',
+            x0:start, x1:b.date, y0:0, y1:1,
+            fillcolor: REGIME_BG[cur] || 'rgba(0,0,0,0)',
+            line:{width:0}, layer:'below',
+          });
+        }
+        cur   = b.regime;
+        start = b.date;
+      }
+      if (i === BAYES.length - 1 && cur) {
+        regimeShapes.push({
+          type:'rect', xref:'x', yref:'paper',
+          x0:start, x1:b.date, y0:0, y1:1,
+          fillcolor: REGIME_BG[cur] || 'rgba(0,0,0,0)',
+          line:{width:0}, layer:'below',
+        });
+      }
+    });
+  }
+
+  const evShapes = KEY_EVENTS.map(ev => ({
+    type:'line', xref:'x', yref:'paper',
+    x0:ev.date, x1:ev.date, y0:0, y1:1,
+    line:{color:ev.color, width:1.2, dash:'dot'},
+  }));
+  const evAnnotations = KEY_EVENTS.map(ev => ({
+    x:ev.date, y:0.98, xref:'x', yref:'paper',
+    text:ev.label, showarrow:false,
+    font:{size:8, color:ev.color}, xanchor:'left', yanchor:'top',
+    textangle:-90, bgcolor:'rgba(13,17,23,0.75)',
+  }));
+
+  Plotly.react('chart-portfolio', [
+    {x: DATES_PORT, y: PORT,     type:'scatter', mode:'lines', name:'Strategy',
+     line:{color:'#3fb950', width:2},
+     fill:'tozeroy', fillcolor:'rgba(63,185,80,0.06)'},
+    {x: DATES_PORT, y: SPY_NORM, type:'scatter', mode:'lines', name:'SPY',
+     line:{color:'#8b949e', width:1.5, dash:'dash'}},
+  ], pl({
+    showlegend:  true,
+    shapes:      [...regimeShapes, ...evShapes],
+    annotations: evAnnotations,
+    yaxis:{...PL_BASE.yaxis, title:'Portfolio (base 100)'},
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CALIBRATION
+// ═══════════════════════════════════════════════════════════════════════════════
+function drawCalibration() {
+  const exp    = CAL.map(c => c[0]);
+  const real   = CAL.map(c => c[1]);
+  const colors = CAL.map(c => c[2]==='BUY' ? '#3fb950' : '#f85149');
+  const maxV   = Math.max(...exp.concat(real).map(Math.abs), 3) * 1.1;
+
+  Plotly.react('chart-scatter', [
+    {x:exp, y:real, type:'scatter', mode:'markers',
+     marker:{color:colors, size:7, opacity:0.8},
+     text: CAL.map(c => `${c[3]||''} ${c[2]}<br>Exp: ${c[0]}%  Real: ${c[1]}%<br>Conf: ${c[4]||'—'}%`),
+     hoverinfo:'text', showlegend:false},
+    {x:[-maxV, maxV], y:[-maxV, maxV], type:'scatter', mode:'lines',
+     line:{color:'#30363d', dash:'dash', width:1.5},
+     showlegend:false},
+    // Phantom traces for legend
+    {x:[null], y:[null], type:'scatter', mode:'markers', name:'BUY',  marker:{color:'#3fb950', size:7}},
+    {x:[null], y:[null], type:'scatter', mode:'markers', name:'SELL', marker:{color:'#f85149', size:7}},
+  ], pl({
+    showlegend:true,
+    xaxis:{...PL_BASE.xaxis, title:'Expected 5d (%)', range:[-maxV,maxV]},
+    yaxis:{...PL_BASE.yaxis, title:'Realized 5d (%)',  range:[-maxV,maxV]},
+  }));
+
+  const buckets = [['50–60',50,60],['60–70',60,70],['70–80',70,80],['80+',80,101]];
+  const bx=[],by=[],bn=[];
+  buckets.forEach(([label,lo,hi]) => {
+    const sub  = SIGNALS.filter(s => s.confidence>=lo && s.confidence<hi && s.win!==null);
+    const wins = sub.filter(s => s.win===true).length;
+    bx.push(label);
+    by.push(sub.length ? Math.round(wins / sub.length * 100) : 0);
+    bn.push(sub.length);
+  });
+  Plotly.react('chart-winrate', [
+    {x:bx, y:by, type:'bar',
+     marker:{color: by.map(v => v>=50?'#3fb950':'#f85149')},
+     text: by.map((v,i) => `${v}%<br>n=${bn[i]}`), textposition:'outside',
+     textfont:{color:'#e6edf3', size:10}},
+    {x:bx, y:[50,50,50,50], type:'scatter', mode:'lines',
+     line:{color:'#d29922', dash:'dot', width:1}, showlegend:false},
+  ], pl({
+    showlegend:false,
+    yaxis:{...PL_BASE.yaxis, title:'Win Rate (%)', range:[0,120]},
+    xaxis:{...PL_BASE.xaxis, title:'Confidence Bucket'},
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIGNAL LOG TABLE
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildTable() {
+  const tbody = document.getElementById('signals-tbody');
+  if (tbody.children.length) return;
+
+  // Approximate vs SPY: compare realized to SPY return over same window
+  const spyByDate = {};
+  if (BAYES && DATES_PORT && SPY_NORM) {
+    DATES_PORT.forEach((d, i) => {
+      spyByDate[d] = SPY_NORM[i];
+    });
+  }
+
+  [...SIGNALS].sort((a,b) => b.date.localeCompare(a.date)).forEach(s => {
+    const r5 = s.realized_5d;
+    const er = s.expected_return_5d;
+
+    const outcome = s.win === true
+      ? '<span class="pill win">WIN</span>'
+      : s.win === false
+        ? '<span class="pill loss">LOSS</span>'
+        : '<span class="pill pending">—</span>';
+
+    const r5html = r5 != null
+      ? `<span class="${r5>=0?'green':'red'}">${r5>0?'+':''}${r5}%</span>`
+      : '<span class="muted">—</span>';
+
+    const erhtml = er != null
+      ? `<span class="${er>=0?'green':'red'}">${er>0?'+':''}${er}%</span>`
+      : '<span class="muted">—</span>';
+
+    const delta = s.delta_ou != null
+      ? s.delta_ou.toFixed(4)
+      : (s.z_score != null ? s.z_score.toFixed(4) : '—');
+
+    // Rough vs SPY: find SPY return over ~5 days after signal
+    let vsSpy = '—';
+    if (r5 != null) {
+      const dIdx = DATES_PORT ? DATES_PORT.indexOf(s.date) : -1;
+      if (dIdx >= 0 && dIdx + 5 < SPY_NORM.length) {
+        const spyRet = ((SPY_NORM[dIdx+5] - SPY_NORM[dIdx]) / SPY_NORM[dIdx] * 100).toFixed(1);
+        const alpha5 = (r5 - parseFloat(spyRet)).toFixed(1);
+        vsSpy = `<span class="${parseFloat(alpha5)>=0?'green':'red'}">${parseFloat(alpha5)>=0?'+':''}${alpha5}%</span>`;
+      }
+    }
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td class="muted">${s.date}</td>
+      <td><strong>${s.ticker}</strong></td>
+      <td><span class="pill ${s.signal}">${s.signal}</span></td>
+      <td><span class="pill ${s.regime||'normal'}">${(s.regime||'—').toUpperCase()}</span></td>
+      <td class="blue">${s.alpha||'—'}</td>
+      <td class="yellow">${s.s||'—'}</td>
+      <td class="purple">${delta}</td>
+      <td>${s.confidence}%</td>
+      <td>${erhtml}</td>
+      <td>${r5html}</td>
+      <td>${vsSpy}</td>
+      <td>${outcome}</td>`;
+    tbody.appendChild(row);
+  });
+}
+</script>
+</body>
+</html>

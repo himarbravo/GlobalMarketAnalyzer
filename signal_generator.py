@@ -185,6 +185,8 @@ class SignalGenerator:
         # Water-landscape: δ = λ - λ_eq (valuation vs regime equilibrium)
         mispricing = getattr(self.engine, 'mispricing', np.zeros((1, self.gb.N)))
         landscape_quality = getattr(self.engine, '_landscape_quality', 'neutral')
+        if getattr(self.engine, 'capital_field', None) is None and landscape_quality == 'real':
+            landscape_quality = 'degraded'  # CapitalField unavailable, delta weight reduced
         current_regime = getattr(self.engine, 'current_regime', 'normal')
         lambda_eq = getattr(self.engine, 'lambda_eq', 18.0)
         lambda_contagion = getattr(self.engine, 'lambda_contagion', np.zeros(self.gb.N))

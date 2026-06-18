@@ -332,10 +332,16 @@ class HeatEngine:
         f += momentum
 
         # Bayesian source correction: f_i^Bayes = f_i^fund + κ·δᵢ(t)·S_fear(t)
-        if hasattr(self, 'mispricing') and len(self.mispricing) > 0:
-            delta_last = np.asarray(self.mispricing[-1], dtype=float)
-            if delta_last.shape != f.shape:
-                delta_last = np.zeros_like(f)
+        # Prefer _last_delta_phys (stored right after solver, before landscape)
+        # so correction is available from the second solve() onward.
+        delta_last = None
+        if hasattr(self, '_last_delta_phys') and self._last_delta_phys.shape == f.shape:
+            delta_last = self._last_delta_phys
+        elif hasattr(self, 'mispricing') and len(self.mispricing) > 0:
+            candidate = np.asarray(self.mispricing[-1], dtype=float)
+            if candidate.shape == f.shape:
+                delta_last = candidate
+        if delta_last is not None:
             vix_last = float(self.gb.vix.iloc[-1]) if (
                 hasattr(self.gb, 'vix') and len(self.gb.vix) > 0
             ) else 20.0
@@ -499,7 +505,12 @@ class HeatEngine:
             self.capital_field = cf
         except Exception as e:
             self.capital_field = None
-            print(f"    ⚠ Capital field para f dinámico no disponible: {e}")
+            self.capital_field_error = str(e)
+            import logging
+            logging.getLogger(__name__).warning(
+                "CapitalField unavailable — f_dynamic falls back to yield-spread only. "
+                "delta weight will be reduced to 0.10 in signal_generator. Error: %s", e
+            )
 
         # Dynamic f: por rol (bank vs productive)
         f_vec = self._compute_dynamic_f()
@@ -675,8 +686,13 @@ class HeatEngine:
         self.u_pred = m_k_pred @ Phi.T
         self.residuals = self.u_real - self.u_pred
 
-        # Sigma per asset
-        self.sigma_residual = np.nanstd(self.residuals, axis=0)
+        # Cache last physical delta for Bayesian f correction on next solve()
+        # (mispricing from _compute_landscape() isn't available yet at this point)
+        self._last_delta_phys = self.residuals[-1].copy()  # (N,)
+
+        # Sigma per asset — use first 70% only to avoid self-normalization
+        train_end = max(10, int(len(self.residuals) * 0.70))
+        self.sigma_residual = np.nanstd(self.residuals[:train_end], axis=0)
 
         # Z-scores
         self._compute_z_scores()
