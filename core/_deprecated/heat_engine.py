@@ -331,6 +331,18 @@ class HeatEngine:
         momentum = self._compute_momentum_forcing()
         f += momentum
 
+        # Bayesian source correction: f_i^Bayes = f_i^fund + κ·δᵢ(t)·S_fear(t)
+        if hasattr(self, 'mispricing') and len(self.mispricing) > 0:
+            delta_last = np.asarray(self.mispricing[-1], dtype=float)
+            if delta_last.shape != f.shape:
+                delta_last = np.zeros_like(f)
+            vix_last = float(self.gb.vix.iloc[-1]) if (
+                hasattr(self.gb, 'vix') and len(self.gb.vix) > 0
+            ) else 20.0
+            s_fear = float(np.clip((20.0 / max(vix_last, 1.0)) ** 0.3, 0.6, 1.2))
+            KAPPA_MISPRICING = 0.05
+            f = f + KAPPA_MISPRICING * delta_last * s_fear
+
         return np.nan_to_num(f, nan=0.0, posinf=0.0, neginf=0.0)
 
     def _compute_dim_corrections(self, m_current: np.ndarray) -> np.ndarray:

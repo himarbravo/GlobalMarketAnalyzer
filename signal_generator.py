@@ -327,6 +327,12 @@ class SignalGenerator:
                 "half_life_days":     half_life,
                 "rev_overlap":        round(asset_sector_c, 3),     # P7
                 "rev_tradeable":      rev_tradeable,                # P7
+                "f_bayes_contribution": round(float(0.05 * delta_i * (
+                    float(np.clip((20.0 / max(
+                        float(self.gb.vix.iloc[-1]) if (
+                            hasattr(self.gb, 'vix') and len(self.gb.vix) > 0
+                        ) else 20.0, 1.0)) ** 0.3, 0.6, 1.2)
+                )), 6),
                 "rationale":          self._build_rationale(
                     ticker, composite, z, F, classification, p_rev, half_life
                 ),
